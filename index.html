@@ -413,7 +413,7 @@ function disposeViewer(id){const v=viewers[id];if(!v)return;try{v.renderer.dispo
 function handleFiles(files){[...files].forEach(file=>{
   const rd=new FileReader();
   rd.onload=e=>{try{const r=parseSTL(e.target.result);if(!r.count)throw 0;
-    const part={id:++pid,name:file.name.replace(/\.stl$/i,""),
+    const part={id:++pid,name:file.name.replace(/\.stl$/i,""),fileName:file.name,fileBuf:e.target.result,
       x:+r.x.toFixed(1),y:+r.y.toFixed(1),z:+r.z.toFixed(1),vol:+(r.volMM3/1000).toFixed(2),
       qty:1,dye:false,vs:false,geo:r.pos,area:r.areaMM2,thumb:renderThumb(r.pos)};
     parts.push(part); createViewer(part);
@@ -607,14 +607,25 @@ document.getElementById("bulkQtyApply").onclick=()=>{const q=Math.max(1,parseInt
 document.querySelectorAll("[data-bulk]").forEach(b=>b.onclick=()=>{const[k,v]=b.dataset.bulk.split("-");parts.forEach(p=>p[k]=(v==="on"));render();});
 
 /* ---- Online payment (Stripe Checkout) ---- */
+function genOrderNo(){const d=new Date();return "WEB-"+d.getFullYear()+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0")+"-"+Math.floor(1000+Math.random()*9000);}
 async function startPayment(){
   if(!parts.length) return;
   if(!validEmail()) return;
   const btn=document.getElementById("payBtn"), orig=btn.textContent;
-  btn.textContent="Starting checkout…"; btn.disabled=true;
+  btn.disabled=true;
+  const orderNo=genOrderNo();
+  // upload STL file(s) first (best-effort; up to ~6MB each, else it falls back to email)
+  btn.textContent="Uploading files…";
+  for(let i=0;i<parts.length;i++){const p=parts[i];
+    if(!p.fileBuf || p.fileBuf.byteLength>6*1024*1024) continue;
+    try{ await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(orderNo)+"&i="+i+"&name="+encodeURIComponent(p.fileName||(p.name+".stl")),
+      {method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.fileBuf}); }catch(e){}
+  }
+  btn.textContent="Starting checkout…";
   try{
     const r=await fetch(CHECKOUT_URL,{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({
+        orderNo,
         parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,dye:p.dye,vs:p.vs})),
         name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone"),
         region:(document.getElementById("sRegion")||{}).value||"us",

@@ -72,11 +72,36 @@ export default async (req) => {
     headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
     body: JSON.stringify([{ toBottom: true, cells }]),
   });
+  const rowResp = await r.json().catch(() => ({}));
   if (!r.ok) {
-    const errTxt = await r.text();
-    console.log("Smartsheet row create failed:", r.status, errTxt);
+    console.log("Smartsheet row create failed:", r.status, JSON.stringify(rowResp));
     return new Response("payment ok, sheet write failed", { status: 200 });
   }
+  const rowId = rowResp.result && rowResp.result[0] && rowResp.result[0].id;
+
+  // Attach uploaded STL file(s) to the new row (best-effort; never fails the webhook).
+  if (rowId && m.order_no) {
+    try {
+      const { getStore } = await import("@netlify/blobs");
+      const store = getStore("orders");
+      const listing = await store.list({ prefix: m.order_no + "/" });
+      for (const b of (listing.blobs || [])) {
+        try {
+          const bytes = await store.get(b.key, { type: "arrayBuffer" });
+          if (!bytes) continue;
+          const meta = await store.getMetadata(b.key).catch(() => null);
+          const fname = (meta && meta.metadata && meta.metadata.name) || b.key.split("__").pop() || "part.stl";
+          const fd = new FormData();
+          fd.append("file", new Blob([bytes], { type: "application/octet-stream" }), fname);
+          const ar = await fetch("https://api.smartsheet.com/2.0/sheets/" + sheetId + "/rows/" + rowId + "/attachments", {
+            method: "POST", headers: { Authorization: "Bearer " + token }, body: fd });
+          if (!ar.ok) console.log("attach failed:", ar.status, await ar.text());
+          else await store.delete(b.key);
+        } catch (e2) { console.log("attach item failed:", e2.message); }
+      }
+    } catch (e) { console.log("attach step failed:", e.message); }
+  }
+
   return new Response("ok", { status: 200 });
 };
 

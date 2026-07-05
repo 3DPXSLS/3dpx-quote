@@ -72,7 +72,8 @@ export default async (req) => {
   const dyeAny   = parts.some(p=>p.dye);
   const vaporAny = parts.some(p=>p.vs);
   const summary = parts.map(p => (p.qty + "x " + p.name + " " + p.x + "x" + p.y + "x" + p.z + "mm" + (p.vs?" +vapor":"") + (p.dye?" +dye":""))).join("; ").slice(0, 460);
-  const orderNo = "WEB-" + new Date().toISOString().slice(0,10).replace(/-/g,"") + "-" + Math.floor(1000+Math.random()*9000);
+  const orderNo = (body.orderNo && /^WEB-[0-9]{8}-[0-9]{3,5}$/.test(body.orderNo)) ? body.orderNo
+    : ("WEB-" + new Date().toISOString().slice(0,10).replace(/-/g,"") + "-" + Math.floor(1000+Math.random()*9000));
   const notes = (summary + (body.matCert?" | Material cert":"") + " | Paid via Stripe").slice(0, 495);
 
   let ret = (body.returnUrl && /^https?:\/\//.test(body.returnUrl)) ? body.returnUrl : (req.headers.get("origin") || "");
