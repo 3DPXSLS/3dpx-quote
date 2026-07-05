@@ -1,0 +1,100 @@
+// 3DPX — create a Stripe Checkout session for an SLS order.
+// Dependency-free: uses fetch + the Stripe REST API (no npm install needed).
+// Env var required: STRIPE_SECRET_KEY  (Netlify → Site settings → Environment variables).
+//
+// The price is recomputed HERE from the part specs + options — the amount the
+// browser sends is never trusted. This is the authoritative charge and keeps
+// the pricing formula off the public page.
+
+const RULES = { volRate0:0.65, volRate100:0.55, bboxRate0:0.04, bboxRate100:0.03,
+  bbVolThresh:3375, bbMult0:1.10, bbMult100:0.70, shellPrice:3, minPrice:0,
+  orderMin:40, marketAdj:0.90,
+  density:0.95, shipFlat:11, shipPerKg:3.5, shipMin:9.95, shipCaMxMult:2.0, shipIntlMult:3.5,
+  matCertFee:100 };
+const FINISH = { dyePct:5, vsPct:30, vsMin:15 };
+const QTY_BREAKS = [{q:1,d:0},{q:2,d:5},{q:10,d:12},{q:50,d:18},{q:100,d:25},{q:250,d:32},{q:500,d:38},{q:1000,d:45}];
+const VALUE_BREAKS = [{v:200,d:5},{v:2000,d:10}];
+const qd = q => { let d=0; for (const t of QTY_BREAKS) if (q>=t.q) d=t.d; return d; };
+const vd = v => { let d=0; for (const t of VALUE_BREAKS) if (v>=t.v) d=t.d; return d; };
+
+function unitPrice(p) {
+  const bbox = (p.x*p.y*p.z)/1000;
+  const density = bbox>0 ? Math.min(p.vol/bbox,1) : 0;
+  const volRate  = RULES.volRate100  + (1-density)*(RULES.volRate0  - RULES.volRate100);
+  const bboxRate = RULES.bboxRate100 + (1-density)*(RULES.bboxRate0 - RULES.bboxRate100);
+  const bbMult = bbox>RULES.bbVolThresh ? RULES.bbMult100
+    : RULES.bbMult100 + (RULES.bbVolThresh-bbox)/RULES.bbVolThresh*(RULES.bbMult0-RULES.bbMult100);
+  let u = (volRate*p.vol + bboxRate*bbox)*bbMult + RULES.shellPrice*(p.shells||1);
+  u = Math.max(u, RULES.minPrice);
+  u *= RULES.marketAdj;
+  const base = u;
+  if (p.dye) u += base*FINISH.dyePct/100;
+  if (p.vs)  u += Math.max(base*FINISH.vsPct/100, FINISH.vsMin);
+  return u;
+}
+function orderTotal(parts, region, matCert) {
+  let gross=0, postQty=0, weight=0;
+  for (const p of parts) {
+    const q = Math.max(1, parseInt(p.qty)||1);
+    const u = unitPrice(p);
+    gross += u*q; postQty += u*(1-qd(q)/100)*q;
+    weight += (p.vol||0)*q;
+  }
+  const vp = vd(gross);
+  const after = postQty - postQty*vp/100;
+  const topUp = Math.max(0, RULES.orderMin - after);
+  const weightKg = weight*RULES.density/1000;
+  const mult = region==="intl" ? RULES.shipIntlMult : (region==="camx" ? RULES.shipCaMxMult : 1);
+  const shipping = Math.round(Math.max(RULES.shipMin, RULES.shipFlat + RULES.shipPerKg*weightKg)*mult*100)/100;
+  const cert = matCert ? RULES.matCertFee : 0;
+  return after + topUp + shipping + cert;
+}
+
+export default async (req) => {
+  if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return json({ error: "Online payment isn't enabled yet." }, 503);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: "Bad request" }, 400); }
+  const parts = Array.isArray(body.parts) ? body.parts : [];
+  if (!parts.length) return json({ error: "No parts in order." }, 400);
+
+  const amount = Math.round(orderTotal(parts, body.region, !!body.matCert) * 100); // cents — authoritative
+  if (amount < 50) return json({ error: "Order total too low." }, 400);
+
+  // return to the page the widget is embedded on (falls back to Stripe's own pages otherwise)
+  let ret = (body.returnUrl && /^https?:\/\//.test(body.returnUrl)) ? body.returnUrl : (req.headers.get("origin") || "");
+  const sep = ret.includes("?") ? "&" : "?";
+  const summary = parts.map(p =>
+    `${p.qty}x ${p.name} ${p.x}x${p.y}x${p.z}mm${p.vs?" +vapor":""}${p.dye?" +dye":""}`
+  ).join("; ").slice(0, 480);
+
+  const f = new URLSearchParams();
+  f.append("mode", "payment");
+  if (ret) { f.append("success_url", ret+sep+"paid=1"); f.append("cancel_url", ret+sep+"canceled=1"); }
+  f.append("line_items[0][price_data][currency]", "usd");
+  f.append("line_items[0][price_data][product_data][name]", "3DPX SLS order — Nylon 12 (PA12)");
+  f.append("line_items[0][price_data][product_data][description]", summary || "SLS parts");
+  f.append("line_items[0][price_data][unit_amount]", String(amount));
+  f.append("line_items[0][quantity]", "1");
+  f.append("metadata[customer_name]",  (body.name||"").slice(0,200));
+  f.append("metadata[customer_phone]", (body.phone||"").slice(0,60));
+  f.append("metadata[region]", (body.region||"us"));
+  f.append("metadata[material_cert]", body.matCert ? "yes" : "no");
+  f.append("metadata[order]", summary);
+  if (body.email) f.append("customer_email", body.email);
+
+  const r = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + key, "Content-Type": "application/x-www-form-urlencoded" },
+    body: f,
+  });
+  const data = await r.json();
+  if (!r.ok) return json({ error: (data.error && data.error.message) || "Stripe error" }, 500);
+  return json({ url: data.url });
+};
+
+function json(obj, status=200) {
+  return new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json" } });
+}

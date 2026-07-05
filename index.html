@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Instant SLS Quote — 3DPX Additive Manufacturing</title>
+<!--
+  ============================================================================
+  3DPX CUSTOMER QUOTE WIDGET  (embed this on your website)
+  ----------------------------------------------------------------------------
+  - Runs 100% in the visitor's browser. STL files never leave their computer.
+  - Live price + downloadable branded PDF + "email quote to 3DPX" lead button.
+  - To CHANGE PRICING, edit the RULES object in the script below.
+  - WHEN YOU ADD ONLINE PAYMENT: move the unitPrice()/order math to a server
+    endpoint and have this page fetch the price, so the formula isn't public.
+    (Look for the block marked  >>> PRICING ENGINE <<<  below.)
+  ============================================================================
+-->
+<style>
+  :root{
+    --navy:#1b2a4a; --orange:#f26a21; --ink:#1b2330; --muted:#6b7891;
+    --line:#dde3ee; --soft:#f5f8fc; --good:#1e9e6a; --warn:#c47f12;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    background:#fff;color:var(--ink);font-size:15px;line-height:1.5}
+  .wrap{max-width:880px;margin:0 auto;padding:24px 18px 60px}
+  .hero{display:flex;align-items:center;gap:16px;border-bottom:3px solid var(--orange);padding-bottom:16px;margin-bottom:6px}
+  .hero img{height:46px}
+  .hero h1{font-size:20px;margin:0;color:var(--navy)}
+  .hero p{margin:2px 0 0;color:var(--muted);font-size:13px}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin:26px 0 10px}
+  .drop{border:2.5px dashed var(--line);border-radius:14px;padding:34px 18px;text-align:center;cursor:pointer;
+    background:var(--soft);transition:.15s}
+  .drop:hover,.drop.over{border-color:var(--orange);background:#fff5ef}
+  .drop .big{font-weight:700;color:var(--navy);font-size:17px}
+  .drop .small{color:var(--muted);font-size:13px;margin-top:5px}
+  .parts{list-style:none;padding:0;margin:14px 0 0}
+  .part{border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:10px}
+  .part .top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .part .nm{font-weight:600}
+  .part .dims{color:var(--muted);font-size:13px;margin-top:2px}
+  .part .price{font-weight:700;color:var(--navy);white-space:nowrap}
+  .part .thumb{width:64px;height:64px;border-radius:8px;border:1px solid var(--line);background:#fff;object-fit:contain;flex:none}
+  .part .viewwrap{flex:none;text-align:center}
+  .part .viewslot{width:120px;height:120px;border:1px solid var(--line);border-radius:10px;background:#f5f8fc;overflow:hidden;position:relative}
+  .part .viewslot canvas{width:120px !important;height:120px !important;display:block;cursor:grab;touch-action:none}
+  .part .viewslot canvas:active{cursor:grabbing}
+  .part .viewhint{font-size:10.5px;color:var(--muted);margin-top:3px}
+  .part .was{color:var(--muted);text-decoration:line-through;font-weight:400;font-size:13px;margin-right:4px}
+  .save{color:var(--good);font-weight:600}
+  .part .each{font-size:12px;color:var(--muted);margin-top:2px;white-space:nowrap;text-align:right}
+  .part .ea{opacity:.75}
+  .nudge{margin-top:10px;background:#fff5ef;border:1px solid #f7c9a8;color:#b6531a;border-radius:9px;
+    padding:8px 11px;font-size:13px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .nudge:hover{background:#ffe9d8}
+  .nudge .go{font-weight:700;white-space:nowrap}
+  .onudge{margin-top:14px;background:#fff5ef;border:1px solid #f7c9a8;color:#b6531a;border-radius:10px;
+    padding:11px 14px;font-size:14px;text-align:center}
+  .opts{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+  .opts .o{flex:1;min-width:130px}
+  .part .chk{display:block;font-size:12px;color:var(--ink);margin-bottom:3px;cursor:pointer}
+  .part .chk input{width:auto;margin-right:6px;vertical-align:middle}
+  .part .leadnote{margin-top:8px;font-size:12px;color:var(--muted)}
+  .part .config{margin-top:10px;border:1px solid var(--line);border-radius:9px;background:var(--soft);padding:6px 12px}
+  .part .config .crow{display:flex;justify-content:space-between;gap:14px;font-size:12.5px;padding:4px 0;border-top:1px solid var(--line)}
+  .part .config .crow:first-child{border-top:none}
+  .part .config .crow>span{color:var(--muted);white-space:nowrap}
+  .part .config .crow>b{color:var(--ink);font-weight:600;text-align:right}
+  .part .config .cin{color:var(--muted);font-weight:400;font-size:11.5px}
+  label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+  input,select{width:100%;border:1px solid var(--line);border-radius:8px;padding:9px 10px;font-size:14px;
+    font-family:inherit;outline:none;background:#fff}
+  input:focus,select:focus{border-color:var(--orange)}
+  .rm{border:none;background:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1}
+  .rm:hover{color:#c0392b}
+  .flag{display:inline-block;background:#fff3e6;color:var(--warn);border:1px solid #f0c793;font-size:12px;
+    padding:2px 8px;border-radius:6px}
+  .ok{display:inline-block;background:#e8f7ef;color:#1e7d52;border:1px solid #a9e0c3;font-size:12px;padding:2px 8px;border-radius:6px}
+  .checks{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px}
+  .contact{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:560px){.contact{grid-template-columns:1fr}}
+  .summary{position:sticky;bottom:0;margin-top:24px;background:var(--navy);color:#fff;border-radius:14px;
+    padding:18px 22px;display:flex;align-items:stretch;justify-content:space-between;gap:22px;flex-wrap:wrap;
+    box-shadow:0 6px 24px rgba(20,30,60,.18)}
+  .summary .sumleft{flex:1;min-width:250px}
+  .summary .sumhead{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#8ea0bf;font-weight:600;margin-bottom:9px}
+  .summary .oline{display:flex;justify-content:space-between;gap:16px;font-size:13px;padding:3.5px 0;color:#d7deea}
+  .summary .oline b{color:#fff;font-weight:600}
+  .summary .oline.save,.summary .oline.save b{color:#57d99a}
+  .summary .oline.tot{border-top:1px solid rgba(255,255,255,.18);margin-top:6px;padding-top:8px;font-size:15px}
+  .summary .oline.tot b{font-size:17px;font-weight:800}
+  .summary .sumright{text-align:right;display:flex;flex-direction:column;justify-content:center;align-items:flex-end;min-width:210px;border-left:1px solid rgba(255,255,255,.15);padding-left:22px}
+  .summary .totlabel{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#8ea0bf}
+  .summary .num{font-size:34px;font-weight:800;line-height:1.05}
+  .summary .totnote{font-size:11px;color:#8ea0bf;margin-bottom:14px}
+  .summary .btns{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+  @media(max-width:560px){.summary .sumright{border-left:none;border-top:1px solid rgba(255,255,255,.15);padding-left:0;padding-top:14px;align-items:flex-start;text-align:left;width:100%}}
+  .summary .btns{display:flex;gap:10px;flex-wrap:wrap}
+  .btn{border:none;border-radius:9px;padding:12px 18px;font-weight:700;font-size:14px;cursor:pointer}
+  .btn.orange{background:var(--orange);color:#fff}
+  .btn.ghost{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.3)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .fine{color:var(--muted);font-size:12px;margin-top:14px}
+  .empty{color:var(--muted);font-size:14px;padding:8px 0}
+  .bulkbar{display:none;align-items:center;flex-wrap:wrap;gap:8px;background:var(--soft);border:1px solid var(--line);
+    border-radius:10px;padding:10px 14px;margin-top:14px;font-size:13px}
+  .bulkbar .bl{font-weight:600;color:var(--navy)}
+  .bulkbar input{width:70px;padding:6px 8px}
+  .bulkbar button{border:1px solid var(--line);background:#fff;color:var(--navy);border-radius:7px;padding:6px 10px;cursor:pointer;font-size:12.5px}
+  .bulkbar button:hover{border-color:var(--orange);color:var(--orange)}
+  .bulkbar .sep{color:var(--line)}
+  .ordernote{display:none;margin-top:12px;background:#fff5ef;border:1px solid #f7c9a8;color:#8a4b1e;border-radius:10px;padding:12px 16px;font-size:13px;line-height:1.55}
+  .ordernote a{color:#c0531a;font-weight:700;text-decoration:none}
+  .ordernote a:hover{text-decoration:underline}
+  .addon{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:13px;cursor:pointer;background:#fff}
+  .addon input{width:auto;flex:none}
+  .addon .addprice{margin-left:auto;font-weight:700;color:var(--navy);white-space:nowrap}
+  .specs{margin-top:16px;border:1px solid var(--line);border-radius:10px;background:var(--soft);overflow:hidden}
+  .specs summary{cursor:pointer;padding:12px 14px;font-weight:600;color:var(--navy);font-size:14px;list-style:none}
+  .specs summary::-webkit-details-marker{display:none}
+  .specs summary::before{content:"\25B8 ";color:var(--orange)}
+  .specs[open] summary::before{content:"\25BE ";}
+  .specsbody{padding:0 14px 14px;font-size:13px;color:var(--ink)}
+  .specsbody div{padding:5px 0;border-top:1px solid var(--line)}
+  .specsbody b{color:var(--navy)}
+  /* print = the branded PDF quote */
+  #printArea{display:none}
+  @media print{
+    body>*{display:none !important}
+    #printArea{display:block !important;position:static;width:100%}
+    @page{margin:14mm}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <div>
+      <h1>Instant SLS Quote</h1>
+      <p>Upload your part · Nylon 12 (PA12) · price in seconds</p>
+    </div>
+  </div>
+  <div id="payBanner" style="display:none;margin-top:14px;border-radius:10px;padding:12px 16px;font-size:14px"></div>
+
+  <h2>1 · Upload your model</h2>
+  <div class="drop" id="drop">
+    <div class="big">⬆ Drop your .STL file here</div>
+    <div class="small">or click to browse · add as many parts as you like · your files stay private (measured in your browser)</div>
+    <input id="stlInput" type="file" accept=".stl" multiple style="display:none">
+  </div>
+
+  <div class="bulkbar" id="bulkBar">
+    <span class="bl">Apply to all parts:</span>
+    <label>Qty <input type="number" min="1" step="1" id="bulkQty" value="1"></label>
+    <button id="bulkQtyApply">Set all</button>
+    <span class="sep">|</span>
+    <button data-bulk="dye-on">Dye all</button><button data-bulk="dye-off">Remove dye</button>
+    <button data-bulk="vs-on">Vapor all</button><button data-bulk="vs-off">Remove vapor</button>
+  </div>
+
+  <ul class="parts" id="parts"></ul>
+
+  <div id="contactWrap" style="display:none">
+    <h2>2 · Your details</h2>
+    <div class="contact">
+      <div><label>Name</label><input id="cName" placeholder="Your name"></div>
+      <div><label>Company</label><input id="cCo" placeholder="Company (optional)"></div>
+      <div><label>Email *</label><input id="cEmail" type="email" placeholder="you@company.com"></div>
+      <div><label>Phone</label><input id="cPhone" placeholder="(optional)"></div>
+    </div>
+    <h2 style="margin-top:22px">3 · Shipping address</h2>
+    <div class="contact">
+      <div style="grid-column:1/-1"><label>Street address</label><input id="sAddr" placeholder="123 Main St, Suite 100"></div>
+      <div><label>City</label><input id="sCity"></div>
+      <div><label>State / region</label><input id="sState"></div>
+      <div><label>ZIP / postal code</label><input id="sZip"></div>
+      <div><label>Destination</label><select id="sRegion">
+        <option value="us">United States</option>
+        <option value="camx">Canada / Mexico</option>
+        <option value="intl">International</option>
+      </select></div>
+    </div>
+    <h2 style="margin-top:22px">4 · Order options</h2>
+    <label class="addon"><input type="checkbox" id="matCert"> <span><b>Material certification</b> — certificate of conformance &amp; material data sheet</span> <span class="addprice">+$100</span></label>
+  </div>
+</div>
+
+<div class="wrap" style="padding-top:0">
+  <div class="onudge" id="orderNudge" style="display:none"></div>
+  <div class="summary" id="summary" style="display:none">
+    <div class="sumleft">
+      <div class="sumhead">Order summary</div>
+      <div id="orderLines"></div>
+    </div>
+    <div class="sumright">
+      <div class="totlabel">Estimated total</div>
+      <div class="num" id="total">$0.00</div>
+      <div class="totnote">excl. tax &amp; shipping</div>
+      <div class="btns">
+        <button class="btn ghost" id="emailBtn">Email quote</button>
+        <button class="btn ghost" id="dlBtn">Download PDF</button>
+        <button class="btn orange" id="payBtn" style="display:none">Order &amp; pay</button>
+      </div>
+    </div>
+  </div>
+  <div class="ordernote" id="orderNote">
+    <b>To place your order:</b> click <b>Download PDF</b> to save your quote, then email it to
+    <a href="mailto:sales@3dpx.com">sales@3dpx.com</a> (attaching your STL file) for order confirmation.
+    We'll reply with confirmation, payment, and lead time.
+  </div>
+  <details class="specs">
+    <summary>SLS · Nylon 12 — tolerances &amp; design specs</summary>
+    <div class="specsbody">
+      <div><b>Dimensional tolerance:</b> ±0.3 mm (±0.012″) up to 100 mm, then ±0.3% of nominal length. Varies with part geometry, size &amp; build orientation.</div>
+      <div><b>Minimum wall thickness:</b> 1.0 mm recommended (0.8 mm absolute minimum).</div>
+      <div><b>Minimum feature / detail:</b> ~0.8 mm; embossed/engraved text ≥ 1 mm wide, 0.5 mm deep.</div>
+      <div><b>Tight-tolerance fits:</b> critical bores &amp; mating faces can be machined or reamed as a secondary operation — just ask.</div>
+    </div>
+  </details>
+  <div class="fine">
+    Estimates for SLS / Nylon 12, natural white, standard finish. Lead times in business days.
+    Tax &amp; shipping calculated separately. Quote valid 30 days · Order minimum $40.
+  </div>
+</div>
+
+<!-- ===== Hidden branded quote, used for the PDF / print ===== -->
+<div id="printArea"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ============================ >>> PRICING ENGINE <<< ============================
+   To hide pricing from customers once you add online payment, move everything
+   between these markers to a server endpoint and fetch the unit price instead. */
+/* ===== Online payment: set to true once the Stripe checkout function is deployed & key set (see PAYMENT-SETUP.md) ===== */
+const PAYMENTS_ENABLED = false;
+const CHECKOUT_URL = "/.netlify/functions/create-checkout";
+
+const RULES = {
+  volRate0:0.65, volRate100:0.55, bboxRate0:0.04, bboxRate100:0.03,
+  bbVolThresh:3375, bbMult0:1.10, bbMult100:0.70, shellPrice:3, minPrice:0,
+  orderMin:40,
+  marketAdj:0.90,  // competitiveness factor: 0.90 = 10% below the base algorithm (set 1.0 to disable)
+  leadBaseDays:3, leadThreshCc:3000, leadDivisor:4500,  // lead: <3000cc = 3 days; else ceil(totalVol/4500 + 3)
+  density:0.95,        // g/cm³ printed PA12 — used to estimate package weight
+  // Shipping best-guess = max(shipMin, shipFlat + shipPerKg × kg) × region multiplier. All editable.
+  shipFlat:11, shipPerKg:3.5, shipMin:9.95, shipCaMxMult:2.0, shipIntlMult:3.5,
+  matCertFee:100  // flat order-level material-certification add-on
+};
+/* Discount tables (from your Price Breaks tab). Edit freely. */
+const QTY_BREAKS=[{q:1,d:0},{q:2,d:5},{q:10,d:12},{q:50,d:18},{q:100,d:25},{q:250,d:32},{q:500,d:38},{q:1000,d:45}]; // per-part qty → % off
+const VALUE_BREAKS=[{v:200,d:5},{v:2000,d:10}]; // order value $ → % off
+const STACK_DISCOUNTS=true; // true = qty + order-value stack; false = apply the greater of the two
+function qtyDiscPct(q){let d=0;for(const t of QTY_BREAKS)if(q>=t.q)d=t.d;return d;}
+function valueDiscPct(v){let d=0;for(const t of VALUE_BREAKS)if(v>=t.v)d=t.d;return d;}
+function nextQtyTier(q){for(const t of QTY_BREAKS)if(t.q>q&&t.d>qtyDiscPct(q))return t;return null;}
+function nextValueTier(g){for(const t of VALUE_BREAKS)if(t.v>g)return t;return null;}
+function lineCalc(p){const list=unitPrice(p);const qp=qtyDiscPct(p.qty);const net=list*(1-qp/100);
+  return {list,qp,net,lineList:list*p.qty,lineNet:net*p.qty};}
+const FINISH = {  // finishing add-ons (stackable). Bead blast is standard & included.
+  dyePct:5, dyeDays:1,         // Dyed black: +5%, +1 business day
+  vsPct:30,  vsMin:15, vsDays:1 // Vapor smooth: +30% ($15/part floor), +1 business day
+};
+function finishLabel(p){const a=[];if(p.vs)a.push("Vapor smooth");if(p.dye)a.push("Dyed black");return a.length?a.join(" + "):"Standard";}
+/* Lead time from TOTAL order volume (your template: <3000cc = base days; else vol/divisor + base), plus finishing. */
+function orderBaseDays(){let tv=0;parts.forEach(p=>tv+=(p.vol||0)*(p.qty||0));
+  const b=tv<RULES.leadThreshCc?RULES.leadBaseDays:(tv/RULES.leadDivisor+RULES.leadBaseDays);return Math.ceil(b);}
+function partFinishDays(p){return (p.dye?FINISH.dyeDays:0)+(p.vs?FINISH.vsDays:0);}
+function leadDays(p){return orderBaseDays()+partFinishDays(p);}
+function leadLabel(p){const d=leadDays(p);return d+(d===1?" day":" days");}
+function orderLeadDays(){let m=0;parts.forEach(p=>{const f=partFinishDays(p);if(f>m)m=f;});return orderBaseDays()+m;}
+const BED = {x:700,y:380,z:580}; // EOS P 770 build volume (mm)
+
+function unitPrice(p){
+  const bbox=(p.x*p.y*p.z)/1000;
+  const density=bbox>0?Math.min(p.vol/bbox,1):0;
+  const volRate=RULES.volRate100+(1-density)*(RULES.volRate0-RULES.volRate100);
+  const bboxRate=RULES.bboxRate100+(1-density)*(RULES.bboxRate0-RULES.bboxRate100);
+  const bbMult=bbox>RULES.bbVolThresh?RULES.bbMult100
+    :RULES.bbMult100+(RULES.bbVolThresh-bbox)/RULES.bbVolThresh*(RULES.bbMult0-RULES.bbMult100);
+  let u=(volRate*p.vol+bboxRate*bbox)*bbMult+RULES.shellPrice*(p.shells||1);
+  u=Math.max(u,RULES.minPrice);
+  u*=RULES.marketAdj;                             // 10% competitiveness reduction on the base
+  const base=u;                                   // finishing % is of the pre-finish unit
+  if(p.dye) u+=base*FINISH.dyePct/100;            // dye and vapor stack as independent components
+  if(p.vs)  u+=Math.max(base*FINISH.vsPct/100, FINISH.vsMin);
+  return u;
+}
+function orderTotals(){
+  let gross=0, postQty=0;
+  parts.forEach(p=>{const c=lineCalc(p);gross+=c.lineList;postQty+=c.lineNet;});
+  const qtyDisc=gross-postQty;
+  const vPct=valueDiscPct(gross);
+  let afterDisc, qtyDiscShown=qtyDisc, valDiscShown=0, valPctShown=0;
+  if(STACK_DISCOUNTS){ valDiscShown=postQty*vPct/100; valPctShown=vPct; afterDisc=postQty-valDiscShown; }
+  else { const valAlt=gross*vPct/100;
+    if(valAlt>=qtyDisc){ afterDisc=gross-valAlt; qtyDiscShown=0; valDiscShown=valAlt; valPctShown=vPct; }
+    else { afterDisc=postQty; } }
+  const topUp=parts.length?Math.max(0,RULES.orderMin-afterDisc):0;
+  const weightKg=parts.reduce((s,p)=>s+(p.vol||0)*(p.qty||0),0)*RULES.density/1000;
+  const region=(typeof document!=="undefined"&&document.getElementById("sRegion"))?document.getElementById("sRegion").value:"us";
+  const shipMult=region==="intl"?RULES.shipIntlMult:(region==="camx"?RULES.shipCaMxMult:1);
+  const shipping=parts.length?Math.round(Math.max(RULES.shipMin,RULES.shipFlat+RULES.shipPerKg*weightKg)*shipMult*100)/100:0;
+  const matCert=(parts.length&&typeof document!=="undefined"&&document.getElementById("matCert")&&document.getElementById("matCert").checked)?RULES.matCertFee:0;
+  return {gross, qtyDisc:qtyDiscShown, valPct:valPctShown, valDisc:valDiscShown, afterDisc, topUp,
+          shipping, weightKg, matCert, total:afterDisc+topUp+shipping+matCert, saved:gross-afterDisc};
+}
+function regionLabel(){const r=(document.getElementById("sRegion")||{}).value;return r==="intl"?"International":r==="camx"?"Canada / Mexico":"United States";}
+/* ============================ <<< END PRICING ENGINE >>> ============================ */
+
+/* ---- STL parsing (binary + ascii) ---- */
+function parseSTL(buf){const dv=new DataView(buf);let bin=false;
+  if(buf.byteLength>=84){const n=dv.getUint32(80,true);if(84+n*50===buf.byteLength)bin=true;}
+  const h=new TextDecoder().decode(new Uint8Array(buf,0,Math.min(512,buf.byteLength))).toLowerCase();
+  if(!bin&&h.trim().startsWith("solid")&&h.includes("facet"))return parseAscii(buf);return parseBin(dv);}
+function acc(tris){let aX=1/0,aY=1/0,aZ=1/0,bX=-1/0,bY=-1/0,bZ=-1/0,v6=0,area=0,n=0;
+  const pos=new Float32Array(tris.length*9); let pi=0;
+  for(const t of tris){const[ax,ay,az,bx,by,bz,cx,cy,cz]=t;
+    v6+=ax*(by*cz-bz*cy)-ay*(bx*cz-bz*cx)+az*(bx*cy-by*cx);n++;
+    const ux=bx-ax,uy=by-ay,uz=bz-az,wx=cx-ax,wy=cy-ay,wz=cz-az;
+    const px=uy*wz-uz*wy,py=uz*wx-ux*wz,pz=ux*wy-uy*wx;
+    area+=0.5*Math.sqrt(px*px+py*py+pz*pz);
+    pos[pi++]=ax;pos[pi++]=ay;pos[pi++]=az;pos[pi++]=bx;pos[pi++]=by;pos[pi++]=bz;pos[pi++]=cx;pos[pi++]=cy;pos[pi++]=cz;
+    for(const[x,y,z]of[[ax,ay,az],[bx,by,bz],[cx,cy,cz]]){
+      if(x<aX)aX=x;if(y<aY)aY=y;if(z<aZ)aZ=z;if(x>bX)bX=x;if(y>bY)bY=y;if(z>bZ)bZ=z;}}
+  return{x:bX-aX,y:bY-aY,z:bZ-aZ,volMM3:Math.abs(v6)/6,areaMM2:area,count:n,pos:pos};}
+function parseBin(dv){const n=dv.getUint32(80,true);const t=[];let o=84;
+  for(let i=0;i<n;i++){o+=12;const f=[];for(let j=0;j<9;j++){f.push(dv.getFloat32(o,true));o+=4;}o+=2;t.push(f);}return acc(t);}
+function parseAscii(buf){const txt=new TextDecoder().decode(new Uint8Array(buf));const v=[];
+  const re=/vertex\s+(-?[\d.eE+]+)\s+(-?[\d.eE+]+)\s+(-?[\d.eE+]+)/g;let m;
+  while((m=re.exec(txt)))v.push([+m[1],+m[2],+m[3]]);
+  const t=[];for(let i=0;i+2<v.length;i+=3)t.push([...v[i],...v[i+1],...v[i+2]]);return acc(t);}
+
+/* ---- state ---- */
+let parts=[], pid=0;
+function oversize(p){const d=[p.x,p.y,p.z].sort((a,b)=>a-b),b=[BED.x,BED.y,BED.z].sort((a,b)=>a-b);
+  return d[0]>b[0]||d[1]>b[1]||d[2]>b[2];}
+// Quick printability heuristics from bounding box + volume-to-surface-area (avg wall proxy = 2V/A).
+function partChecks(p){
+  const w=[];
+  const d=[p.x,p.y,p.z].sort((a,b)=>a-b), b=[BED.x,BED.y,BED.z].sort((a,b)=>a-b);
+  if(d[0]>b[0]||d[1]>b[1]||d[2]>b[2]) w.push("Exceeds our build size (700×380×580 mm) — we'll discuss splitting or scaling.");
+  else if(d[2]>b[2]*0.92||d[1]>b[1]*0.92) w.push("Close to our maximum build size — build orientation may be limited.");
+  const wall=(p.area>0)?(2*p.vol*1000/p.area):null;   // approx average wall thickness, mm
+  if(d[0]<0.8) w.push("Thinnest dimension is under 0.8 mm — below our minimum; likely won't print as-is.");
+  else if(d[0]<1.0||(wall!==null&&wall<1.0)) w.push("Some walls/features look under our 1.0 mm recommended minimum — please double-check.");
+  if(d[2]<3||p.vol<0.02) w.push("Very small part — fine detail may not survive; we'll confirm before printing.");
+  return w;
+}
+
+/* ---- 3D thumbnail renderer (Three.js, shared offscreen context) ---- */
+let _r3d,_scene3,_cam3,_mesh3,_mat3;
+function initThumb(){
+  if(_r3d||!window.THREE)return;
+  _r3d=new THREE.WebGLRenderer({antialias:true,alpha:true,preserveDrawingBuffer:true});
+  _r3d.setSize(260,260);_r3d.setPixelRatio(1);
+  _scene3=new THREE.Scene();
+  _cam3=new THREE.PerspectiveCamera(32,1,0.1,100000);
+  const k=new THREE.DirectionalLight(0xffffff,0.95);k.position.set(2,3,2);
+  const f=new THREE.DirectionalLight(0xffffff,0.35);f.position.set(-2,-1,-1.5);
+  _scene3.add(k,f,new THREE.AmbientLight(0xffffff,0.55));
+  _mat3=new THREE.MeshPhongMaterial({color:0x33415c,shininess:18});
+}
+function renderThumb(pos){
+  if(!window.THREE)return null;
+  try{
+    initThumb();
+    if(_mesh3){_scene3.remove(_mesh3);_mesh3.geometry.dispose();}
+    const g=new THREE.BufferGeometry();
+    g.setAttribute("position",new THREE.BufferAttribute(pos,3));
+    g.computeVertexNormals();g.computeBoundingBox();
+    const c=g.boundingBox.getCenter(new THREE.Vector3());g.translate(-c.x,-c.y,-c.z);
+    const sz=g.boundingBox.getSize(new THREE.Vector3());
+    const rad=Math.max(sz.x,sz.y,sz.z)||1;
+    _mesh3=new THREE.Mesh(g,_mat3);_scene3.add(_mesh3);
+    _cam3.position.set(rad*1.7,rad*1.5,rad*2.1);_cam3.lookAt(0,0,0);
+    _r3d.render(_scene3,_cam3);
+    return _r3d.domElement.toDataURL("image/png");
+  }catch(e){return null;}
+}
+
+/* ---- interactive per-part 3D viewers (persistent canvas per part; survives re-renders) ---- */
+const viewers={}; let _anim=false;
+function animViewers(){let any=false;
+  for(const id in viewers){const v=viewers[id];any=true;if(v.auto)v.rotY+=0.006;
+    v.mesh.rotation.x=v.rotX;v.mesh.rotation.y=v.rotY;v.renderer.render(v.scene,v.cam);}
+  if(any)requestAnimationFrame(animViewers);else _anim=false;}
+function startAnim(){if(!_anim){_anim=true;requestAnimationFrame(animViewers);}}
+function createViewer(part){
+  if(!window.THREE||!part.geo)return;
+  const canvas=document.createElement("canvas");canvas.width=300;canvas.height=300;
+  const r=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});r.setPixelRatio(1);r.setSize(300,300,false);
+  const scene=new THREE.Scene();const cam=new THREE.PerspectiveCamera(33,1,0.1,100000);
+  scene.add(new THREE.AmbientLight(0xffffff,0.6));
+  const k=new THREE.DirectionalLight(0xffffff,0.95);k.position.set(2,3,2);scene.add(k);
+  const fl=new THREE.DirectionalLight(0xffffff,0.35);fl.position.set(-2,-1,-1.5);scene.add(fl);
+  const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.BufferAttribute(part.geo,3));
+  g.computeVertexNormals();g.computeBoundingBox();
+  const ctr=g.boundingBox.getCenter(new THREE.Vector3());g.translate(-ctr.x,-ctr.y,-ctr.z);
+  const sz=g.boundingBox.getSize(new THREE.Vector3());const rad=Math.max(sz.x,sz.y,sz.z)||1;
+  const mesh=new THREE.Mesh(g,new THREE.MeshPhongMaterial({color:0x33415c,shininess:18}));scene.add(mesh);
+  cam.position.set(0,0,rad*2.5);cam.lookAt(0,0,0);
+  const v={canvas,renderer:r,scene,cam,mesh,rotX:0.4,rotY:0.6,auto:true,drag:false,lx:0,ly:0};
+  const down=e=>{v.drag=true;v.auto=false;const q=e.touches?e.touches[0]:e;v.lx=q.clientX;v.ly=q.clientY;if(e.cancelable)e.preventDefault();};
+  const move=e=>{if(!v.drag)return;const q=e.touches?e.touches[0]:e;v.rotY+=(q.clientX-v.lx)*0.01;v.rotX+=(q.clientY-v.ly)*0.01;v.lx=q.clientX;v.ly=q.clientY;if(e.cancelable)e.preventDefault();};
+  const up=()=>{v.drag=false;};
+  canvas.addEventListener("mousedown",down);window.addEventListener("mousemove",move);window.addEventListener("mouseup",up);
+  canvas.addEventListener("touchstart",down,{passive:false});canvas.addEventListener("touchmove",move,{passive:false});window.addEventListener("touchend",up);
+  viewers[part.id]=v;startAnim();
+}
+function disposeViewer(id){const v=viewers[id];if(!v)return;try{v.renderer.dispose();if(v.renderer.forceContextLoss)v.renderer.forceContextLoss();}catch(e){}delete viewers[id];}
+
+function handleFiles(files){[...files].forEach(file=>{
+  const rd=new FileReader();
+  rd.onload=e=>{try{const r=parseSTL(e.target.result);if(!r.count)throw 0;
+    const part={id:++pid,name:file.name.replace(/\.stl$/i,""),
+      x:+r.x.toFixed(1),y:+r.y.toFixed(1),z:+r.z.toFixed(1),vol:+(r.volMM3/1000).toFixed(2),
+      qty:1,dye:false,vs:false,geo:r.pos,area:r.areaMM2,thumb:renderThumb(r.pos)};
+    parts.push(part); createViewer(part);
+    render();}catch(err){alert("Couldn't read "+file.name+". Please check it's a valid STL.");}};
+  rd.readAsArrayBuffer(file);});}
+
+/* ---- render ---- */
+const money=n=>"$"+n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+function render(){
+  const ul=document.getElementById("parts");ul.innerHTML="";
+  parts.forEach((p,i)=>{
+    const c=lineCalc(p),checks=partChecks(p);
+    const nt=nextQtyTier(p.qty);
+    let nudge="";
+    if(nt){const need=nt.q-p.qty, eaNext=c.list*(1-nt.d/100);
+      nudge=`<div class="nudge" data-bump="${p.id}" data-to="${nt.q}">💡 Add ${need} more (${nt.q} total) for <b>${nt.d}% off</b> — ${money(eaNext)}/ea<span class="go">Apply →</span></div>`;}
+    const li=document.createElement("li");li.className="part";
+    li.innerHTML=`
+      <div class="top">
+        <div style="display:flex;gap:12px;align-items:flex-start;min-width:0">
+          ${window.THREE&&p.geo?`<div class="viewwrap"><div class="viewslot" data-view="${p.id}" title="Drag to rotate"></div><div class="viewhint">↻ drag to rotate</div></div>`:(p.thumb?`<img class="thumb" src="${p.thumb}" alt="3D preview of ${esc(p.name)}">`:"")}
+          <div style="min-width:0"><div class="nm">${esc(p.name)}</div>
+          <div class="dims">${p.x}×${p.y}×${p.z} mm · ${p.vol} cm³ · qty <b>${p.qty}</b>${c.qp>0?` · <span class="save">${c.qp}% qty discount</span>`:""}</div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="text-align:right">
+            <div class="price">${money(c.lineNet)}</div>
+            <div class="each">${c.qp>0?`<span class="was">${money(c.list)}</span> `:""}${money(c.net)} <span class="ea">/ea</span></div>
+          </div>
+          <button class="rm" data-del="${p.id}" title="Remove">×</button></div>
+      </div>
+      <div class="opts">
+        <div class="o"><label>Quantity</label><input type="number" min="1" step="1" data-k="qty" data-id="${p.id}" value="${p.qty}"></div>
+        <div class="o"><label>Finishing (optional)</label>
+          <label class="chk"><input type="checkbox" data-k="dye" data-id="${p.id}" ${p.dye?"checked":""}> Dyed black (+5%, +1 day)</label>
+          <label class="chk"><input type="checkbox" data-k="vs" data-id="${p.id}" ${p.vs?"checked":""}> Vapor smooth (+30%, +1 day)</label></div>
+      </div>
+      <div class="config">
+        <div class="crow"><span>Process</span><b>Selective Laser Sintering (SLS)</b></div>
+        <div class="crow"><span>Material</span><b>Nylon 12 (PA12) — White (Natural)</b></div>
+        <div class="crow"><span>Finish</span><b>${finishLabel(p)}</b></div>
+        <div class="crow"><span>Measurement</span><b>${p.x} × ${p.y} × ${p.z} mm · ${p.vol} cm³<br><span class="cin">${(p.x/25.4).toFixed(3)} × ${(p.y/25.4).toFixed(3)} × ${(p.z/25.4).toFixed(3)} in · ${(p.vol*0.0610237).toFixed(3)} in³</span></b></div>
+        <div class="crow"><span>Inspection</span><b>Standard</b></div>
+      </div>
+      ${nudge}
+      <div class="checks">${checks.length?checks.map(m=>`<span class="flag">⚠ ${m}</span>`).join(""):`<span class="ok">✓ Looks printable — no obvious issues</span>`}</div>`;
+    ul.appendChild(li);
+  });
+  ul.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{disposeViewer(b.dataset.del);parts=parts.filter(p=>p.id!=b.dataset.del);render();});
+  ul.querySelectorAll("[data-bump]").forEach(b=>b.onclick=()=>{const p=parts.find(p=>p.id==b.dataset.bump);if(p){p.qty=parseInt(b.dataset.to);render();}});
+  ul.querySelectorAll("input,select").forEach(inp=>{
+    const ev=(inp.type==="checkbox"||inp.tagName==="SELECT")?"change":"input";
+    inp.addEventListener(ev,()=>{const p=parts.find(p=>p.id==inp.dataset.id);if(!p)return;
+      const k=inp.dataset.k;
+      if(inp.type==="checkbox") p[k]=inp.checked;
+      else p[k]=(k==="qty")?(parseInt(inp.value)||1):inp.value;
+      render();});
+  });
+  parts.forEach(p=>{const slot=ul.querySelector('.viewslot[data-view="'+p.id+'"]');if(slot&&viewers[p.id])slot.appendChild(viewers[p.id].canvas);});
+
+  const has=parts.length>0;
+  document.getElementById("bulkBar").style.display=parts.length>1?"flex":"none";
+  document.getElementById("contactWrap").style.display=has?"block":"none";
+  document.getElementById("summary").style.display=has?"flex":"none";
+  document.getElementById("orderNote").style.display=has?"block":"none";
+  const t=orderTotals();
+  document.getElementById("total").textContent=money(t.total);
+  const pcs=parts.reduce((s,p)=>s+(p.qty||0),0);
+  let lines="";
+  lines+=`<div class="oline"><span>Parts</span><b>${parts.length} part${parts.length===1?"":"s"} · ${pcs} pc${pcs===1?"":"s"}</b></div>`;
+  lines+=`<div class="oline"><span>Subtotal</span><b>${money(t.gross)}</b></div>`;
+  if(t.saved>0.005) lines+=`<div class="oline save"><span>Discounts (save ${Math.round(t.saved/t.gross*100)}%)</span><b>−${money(t.saved)}</b></div>`;
+  if(t.topUp>0) lines+=`<div class="oline"><span>Order minimum top-up</span><b>${money(t.topUp)}</b></div>`;
+  lines+=`<div class="oline"><span>Est. shipping${t.weightKg>0?` · ~${t.weightKg.toFixed(2)} kg`:""}</span><b>${t.shipping>0?money(t.shipping):"quoted separately"}</b></div>`;
+  lines+=`<div class="oline"><span>Sales tax</span><b>calculated at checkout</b></div>`;
+  lines+=`<div class="oline"><span>⏱ Est. lead time</span><b>${orderLeadDays()} business days</b></div>`;
+  if(t.matCert>0) lines+=`<div class="oline"><span>Material certification</span><b>${money(t.matCert)}</b></div>`;
+  lines+=`<div class="oline tot"><span>Estimated total</span><b>${money(t.total)}</b></div>`;
+  document.getElementById("orderLines").innerHTML=lines;
+  const ov=nextValueTier(t.gross),on=document.getElementById("orderNudge");
+  if(ov&&parts.length){on.style.display="block";
+    on.innerHTML=`🎯 Add <b>${money(ov.v-t.gross)}</b> more in parts to unlock <b>${ov.d}% off your entire order</b>.`;}
+  else on.style.display="none";
+}
+function esc(s){return(s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+
+/* ---- quote document (for PDF) ---- */
+function quoteNum(){const d=new Date();return "WEB-"+d.getFullYear()+(""+(d.getMonth()+1)).padStart(2,"0")+(""+d.getDate()).padStart(2,"0")+"-"+(""+d.getHours()).padStart(2,"0")+(""+d.getMinutes()).padStart(2,"0");}
+function buildQuoteDoc(qn){
+  const t=orderTotals();
+  const rows=parts.map((p,i)=>{const c=lineCalc(p);const bd="border-bottom:1px solid #eef2f8";const bg=i%2?"background:#fafbfd;":"";return `<tr style="${bg}">
+    <td style="padding:8px 6px;${bd}"><div style="display:flex;align-items:center;gap:8px">${p.thumb?`<img src="${p.thumb}" style="width:34px;height:34px;border:1px solid #e2e8f2;border-radius:5px;object-fit:contain">`:""}<span style="font-weight:600">${esc(p.name)}</span></div></td>
+    <td style="padding:8px 6px;${bd};font-size:11px;color:#42506b">SLS · Nylon 12 · White</td>
+    <td style="padding:8px 6px;${bd}">${p.x}×${p.y}×${p.z}</td>
+    <td style="padding:8px 6px;${bd}">${finishLabel(p)}${c.qp>0?` <span style="color:#1e9e6a">(−${c.qp}%)</span>`:""}</td>
+    <td style="padding:8px 6px;${bd};text-align:center">${p.qty}</td>
+    <td style="padding:8px 6px;${bd};text-align:right">${money(c.net)}</td>
+    <td style="padding:8px 6px;${bd};text-align:right;font-weight:700">${money(c.lineNet)}</td></tr>`;}).join("");
+  const name=v("cName"),co=v("cCo"),email=v("cEmail"),phone=v("cPhone");
+  const ship=[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", ");
+  const date=new Date().toLocaleDateString("en-US",{year:"numeric",month:"long",day:"numeric"});
+  return `
+  <div style="font-family:-apple-system,'Segoe UI',Arial,sans-serif;color:#1b2330;max-width:730px;margin:0 auto;padding:6px 2px;line-height:1.5">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #f26a21;padding-bottom:14px">
+      <img src="data:image/png;base64,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" style="height:50px">
+      <div style="text-align:right;font-size:11.5px;color:#42506b;line-height:1.6">
+        <div style="font-weight:700;color:#1b2a4a;font-size:12.5px">3DPX Additive Manufacturing</div>
+        410 N. Milwaukee · Chicago, IL 60654<br>(312) 896-3399</div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin:18px 0 14px">
+      <div style="font-size:30px;font-weight:800;letter-spacing:2px;color:#1b2a4a">QUOTE</div>
+      <table style="border-collapse:collapse;font-size:11.5px">
+        <tr><td style="color:#6b7891;text-transform:uppercase;font-size:10px;padding:1px 12px 1px 0">Quote #</td><td style="text-align:right;font-weight:700;color:#1b2a4a">${qn}</td></tr>
+        <tr><td style="color:#6b7891;text-transform:uppercase;font-size:10px;padding:1px 12px 1px 0">Date</td><td style="text-align:right;font-weight:600;color:#42506b">${date}</td></tr>
+        <tr><td style="color:#6b7891;text-transform:uppercase;font-size:10px;padding:1px 12px 1px 0">Valid</td><td style="text-align:right;font-weight:600;color:#42506b">30 days</td></tr>
+        <tr><td style="color:#6b7891;text-transform:uppercase;font-size:10px;padding:1px 12px 1px 0">Est. lead</td><td style="text-align:right;font-weight:600;color:#42506b">${orderLeadDays()} business days</td></tr>
+      </table>
+    </div>
+    <div style="background:#f5f8fc;border:1px solid #e2e8f2;border-radius:8px;padding:10px 14px;margin-bottom:16px">
+      <div style="color:#6b7891;font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Prepared for</div>
+      <div style="font-size:14px;font-weight:700;color:#1b2330">${esc(name)||"—"}</div>
+      ${[co,email,phone].filter(Boolean).length?`<div style="font-size:12px;color:#42506b;margin-top:1px">${[co,email,phone].filter(Boolean).map(esc).join("  ·  ")}</div>`:""}
+      ${ship?`<div style="font-size:12px;color:#42506b;margin-top:6px"><b style="color:#6b7891;font-weight:600">Ship to:</b> ${esc(ship)}</div>`:""}
+    </div>
+    <div style="background:#1b2a4a;color:#fff;font-size:10.5px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;padding:7px 12px;border-radius:6px">Manufacturing services · SLS · Nylon 12</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:10px">
+      <thead><tr style="background:#eef2f8;color:#1b2a4a;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px">
+        <th style="padding:8px 6px">Part</th><th style="padding:8px 6px">Process / material</th>
+        <th style="padding:8px 6px">Size (mm)</th><th style="padding:8px 6px">Finish</th>
+        <th style="padding:8px 6px;text-align:center">Qty</th>
+        <th style="padding:8px 6px;text-align:right">Unit</th><th style="padding:8px 6px;text-align:right">Line</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+    <div style="display:flex;justify-content:flex-end;margin-top:16px">
+     <div style="width:300px;font-size:12.5px">
+      <div style="display:flex;justify-content:space-between;padding:3px 0;color:#42506b"><span>Subtotal</span><span>${money(t.gross)}</span></div>
+      ${t.qtyDisc>0.005?`<div style="display:flex;justify-content:space-between;padding:3px 0;color:#1e9e6a"><span>Quantity discount</span><span>−${money(t.qtyDisc)}</span></div>`:""}
+      ${t.valDisc>0.005?`<div style="display:flex;justify-content:space-between;padding:3px 0;color:#1e9e6a"><span>Order-value discount (${t.valPct}%)</span><span>−${money(t.valDisc)}</span></div>`:""}
+      ${t.topUp>0?`<div style="display:flex;justify-content:space-between;padding:3px 0"><span>Order minimum top-up</span><span>${money(t.topUp)}</span></div>`:""}
+      <div style="display:flex;justify-content:space-between;padding:3px 0;color:#42506b"><span>Est. shipping${t.weightKg>0?` (~${t.weightKg.toFixed(2)} kg)`:""}</span><span>${t.shipping>0?money(t.shipping):"quoted separately"}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;color:#42506b"><span>Sales tax</span><span>calculated at checkout</span></div>
+      ${t.matCert>0?`<div style="display:flex;justify-content:space-between;padding:3px 0"><span>Material certification</span><span>${money(t.matCert)}</span></div>`:""}
+      ${t.saved>0.005?`<div style="display:flex;justify-content:space-between;padding:5px 0 3px;color:#1e9e6a;font-weight:700;border-top:1px solid #eef2f8;margin-top:3px"><span>You save</span><span>${money(t.saved)} (${Math.round(t.saved/t.gross*100)}%)</span></div>`:""}
+      <div style="display:flex;justify-content:space-between;align-items:center;background:#1b2a4a;color:#fff;padding:9px 14px;border-radius:8px;margin-top:8px"><span style="font-size:10.5px;text-transform:uppercase;letter-spacing:1px">Estimated total</span><span style="font-size:19px;font-weight:800">${money(t.total)}</span></div>
+     </div>
+    </div>
+    <div style="margin-top:24px;font-size:11px;color:#5a6678;border-top:1px solid #e2e8f2;padding-top:12px;line-height:1.6">
+      <b style="color:#1b2a4a">Quote valid 30 days.</b> Estimates for SLS / Nylon 12 (PA12), natural white, standard finish unless noted; final pricing confirmed on file review. Tax &amp; shipping quoted separately · order minimum $40.<br>
+      Standard tolerance ±0.3 mm (±0.012″) up to 100 mm, then ±0.3% of nominal (varies with geometry) · minimum wall 1.0 mm.</div>
+    <div style="margin-top:16px;text-align:center;background:#1b2a4a;color:#fff;padding:11px;border-radius:8px;font-weight:700;letter-spacing:1.5px;font-size:11.5px;text-transform:uppercase">Ask us about <span style="color:#f26a21">vapor smoothing</span> &amp; <span style="color:#f26a21">volume production</span></div>
+  </div>`;
+}
+function v(id){return document.getElementById(id).value;}
+
+/* ---- actions ---- */
+function validEmail(){const e=v("cEmail");if(!e||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)){alert("Please enter a valid email so we can send your quote.");return false;}return true;}
+
+document.getElementById("dlBtn").onclick=()=>{
+  if(!validEmail())return;
+  const qn=quoteNum();
+  document.getElementById("printArea").innerHTML=buildQuoteDoc(qn);
+  document.title="3DPX Quote "+qn;
+  window.print();
+};
+document.getElementById("emailBtn").onclick=()=>{
+  if(!validEmail())return;
+  const qn=quoteNum(),t=orderTotals();
+  const ship=[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", ");
+  let body=`New SLS quote request%0D%0A%0D%0AQuote #: ${qn}%0D%0AName: ${v("cName")}%0D%0ACompany: ${v("cCo")}%0D%0AEmail: ${v("cEmail")}%0D%0APhone: ${v("cPhone")}%0D%0AShip to: ${ship||"(not provided)"}%0D%0A%0D%0APARTS:%0D%0A`;
+  parts.forEach((p,i)=>{const c=lineCalc(p);
+    body+=`${i+1}. ${p.name} | qty ${p.qty} | ${p.x}x${p.y}x${p.z}mm | ${p.vol}cc | ${finishLabel(p)} | ${money(c.net)} ea = ${money(c.lineNet)}${c.qp>0?` (${c.qp}% qty disc)`:""}%0D%0A`;});
+  body+=`%0D%0ASubtotal (list): ${money(t.gross)}`;
+  if(t.saved>0.005) body+=`%0D%0ADiscounts: -${money(t.saved)}`;
+  body+=`%0D%0AShipping${t.weightKg>0?` (~${t.weightKg.toFixed(2)} kg)`:""}: ${t.shipping>0?money(t.shipping):"quoted separately"}`;
+  if(t.matCert>0) body+=`%0D%0AMaterial certification: ${money(t.matCert)}`;
+  body+=`%0D%0AEst. lead time: ${orderLeadDays()} business days`;
+  body+=`%0D%0AESTIMATED TOTAL: ${money(t.total)} (ex tax & shipping)%0D%0A%0D%0A** Please attach your STL file(s) to this email. **`;
+  window.location.href=`mailto:sales@3dpx.com?subject=SLS Quote Request ${qn} - ${encodeURIComponent(v("cCo")||v("cName")||"Web")}&body=${body}`;
+};
+
+/* ---- wire up ---- */
+const drop=document.getElementById("drop");
+drop.onclick=()=>document.getElementById("stlInput").click();
+document.getElementById("stlInput").onchange=e=>{if(e.target.files.length)handleFiles(e.target.files);e.target.value="";};
+["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("over");}));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("over");}));
+drop.addEventListener("drop",e=>{if(e.dataTransfer.files.length)handleFiles(e.dataTransfer.files);});
+["cName","cCo","cEmail","cPhone"].forEach(id=>document.getElementById(id).addEventListener("input",()=>{}));
+document.getElementById("sRegion").addEventListener("change",render);
+document.getElementById("matCert").addEventListener("change",render);
+document.getElementById("bulkQtyApply").onclick=()=>{const q=Math.max(1,parseInt(document.getElementById("bulkQty").value)||1);parts.forEach(p=>p.qty=q);render();};
+document.querySelectorAll("[data-bulk]").forEach(b=>b.onclick=()=>{const[k,v]=b.dataset.bulk.split("-");parts.forEach(p=>p[k]=(v==="on"));render();});
+
+/* ---- Online payment (Stripe Checkout) ---- */
+async function startPayment(){
+  if(!parts.length) return;
+  if(!validEmail()) return;
+  const btn=document.getElementById("payBtn"), orig=btn.textContent;
+  btn.textContent="Starting checkout…"; btn.disabled=true;
+  try{
+    const r=await fetch(CHECKOUT_URL,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,dye:p.dye,vs:p.vs})),
+        name:v("cName"),email:v("cEmail"),phone:v("cPhone"),
+        region:(document.getElementById("sRegion")||{}).value||"us",
+        matCert:document.getElementById("matCert").checked,
+        returnUrl:document.referrer||location.href})});
+    const data=await r.json().catch(()=>({}));
+    if(data.url){ try{window.top.location.href=data.url;}catch(e){window.location.href=data.url;} return; }
+    alert(data.error||"Couldn't start checkout. Please download your quote and email it to sales@3dpx.com.");
+  }catch(e){
+    alert("Online ordering isn't available right now. Please download your quote and email it to sales@3dpx.com.");
+  }
+  btn.textContent=orig; btn.disabled=false;
+}
+if(PAYMENTS_ENABLED){
+  const pb=document.getElementById("payBtn"); pb.style.display=""; pb.onclick=startPayment;
+}
+(function(){const q=new URLSearchParams(location.search);const b=document.getElementById("payBanner");
+  if(q.get("paid")){b.style.display="block";b.style.background="#e8f7ef";b.style.border="1px solid #a9e0c3";b.style.color="#1e7d52";
+    b.innerHTML="✓ <b>Payment received — thank you!</b> We'll email your order confirmation shortly. Please make sure we have your STL file at sales@3dpx.com.";}
+  else if(q.get("canceled")){b.style.display="block";b.style.background="#fff5ef";b.style.border="1px solid #f7c9a8";b.style.color="#8a4b1e";
+    b.innerHTML="Checkout canceled — your quote is still here whenever you're ready.";}
+})();
+render();
+
+/* ---- auto-resize: tell the parent page our height when embedded in an iframe ---- */
+function postHeight(){try{if(window.parent!==window)window.parent.postMessage({type:"3dpxQuoteHeight",height:document.body.scrollHeight},"*");}catch(e){}}
+if(window.ResizeObserver){new ResizeObserver(postHeight).observe(document.body);}
+window.addEventListener("load",postHeight);
+</script>
+</body>
+</html>
