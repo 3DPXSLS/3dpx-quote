@@ -23,6 +23,7 @@ const COL = {
   shipAddr:    347271731564420,
   poType:      8601217236946820,
   notes:       438442912337796,
+  dueDate:     5951129734408068,
 };
 
 export default async (req) => {
@@ -47,6 +48,7 @@ export default async (req) => {
   const sheetId = process.env.SMARTSHEET_SHEET_ID || SLS_JOBS_SHEET;
   const price = (s.amount_total != null ? s.amount_total : 0) / 100;
   const contactVal = (m.customer_name || "") + (m.customer_email ? " <" + m.customer_email + ">" : "");
+  const due = addBusinessDays(new Date(), parseInt(m.lead_days)||3).toISOString().slice(0,10);
 
   const cells = [
     { columnId: COL.orderStatus, value: "Pre Sale", strict: false },
@@ -56,6 +58,7 @@ export default async (req) => {
     { columnId: COL.price,       value: price },
     { columnId: COL.volume,      value: parseFloat(m.total_vol) || 0 },
     { columnId: COL.totalParts,  value: parseInt(m.total_parts) || 0 },
+    { columnId: COL.dueDate,     value: due },
     { columnId: COL.color,       objectValue: { objectType: "MULTI_PICKLIST", values: [ m.color || "White" ] }, strict: false },
     { columnId: COL.dye,         value: m.dye_any === "yes" },
     { columnId: COL.vapor,       value: m.vapor_any === "yes" },
@@ -76,6 +79,12 @@ export default async (req) => {
   }
   return new Response("ok", { status: 200 });
 };
+
+function addBusinessDays(d, n) {
+  const r = new Date(d); let added = 0;
+  while (added < n) { r.setDate(r.getDate()+1); const day = r.getDay(); if (day!==0 && day!==6) added++; }
+  return r;
+}
 
 function verifyStripe(payload, header, secret) {
   try {

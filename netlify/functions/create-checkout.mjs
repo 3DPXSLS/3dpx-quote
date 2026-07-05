@@ -47,6 +47,13 @@ function orderTotal(parts, region, matCert) {
   return after + topUp + shipping + cert;
 }
 
+function leadDaysCalc(parts) {
+  let tv = 0; for (const p of parts) tv += (p.vol||0)*Math.max(1, parseInt(p.qty)||1);
+  let base = tv < 3000 ? 3 : Math.ceil(tv/4500 + 3);
+  let fin = 0; for (const p of parts) { const ff = (p.dye?1:0)+(p.vs?1:0); if (ff>fin) fin=ff; }
+  return base + fin;
+}
+
 export default async (req) => {
   if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
   const key = process.env.STRIPE_SECRET_KEY;
@@ -88,6 +95,7 @@ export default async (req) => {
   f.append("metadata[material_cert]", body.matCert ? "yes" : "no");
   f.append("metadata[total_parts]", String(totalParts));
   f.append("metadata[total_vol]", String(totalVol));
+  f.append("metadata[lead_days]", String(leadDaysCalc(parts)));
   f.append("metadata[dye_any]", dyeAny ? "yes" : "no");
   f.append("metadata[vapor_any]", vaporAny ? "yes" : "no");
   f.append("metadata[color]", "White");
