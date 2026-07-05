@@ -1,10 +1,8 @@
 // 3DPX — create a Stripe Checkout session for an SLS order.
 // Dependency-free: uses fetch + the Stripe REST API (no npm install needed).
-// Env var required: STRIPE_SECRET_KEY  (Netlify → Site settings → Environment variables).
-//
-// The price is recomputed HERE from the part specs + options — the amount the
-// browser sends is never trusted. This is the authoritative charge and keeps
-// the pricing formula off the public page.
+// Env var required: STRIPE_SECRET_KEY (Netlify -> Site settings -> Environment variables).
+// The price is recomputed HERE from the part specs + options (never trust the browser).
+// All order details go into Stripe metadata so the webhook can create the Smartsheet row.
 
 const RULES = { volRate0:0.65, volRate100:0.55, bboxRate0:0.04, bboxRate100:0.03,
   bbVolThresh:3375, bbMult0:1.10, bbMult100:0.70, shellPrice:3, minPrice:0,
@@ -37,8 +35,7 @@ function orderTotal(parts, region, matCert) {
   for (const p of parts) {
     const q = Math.max(1, parseInt(p.qty)||1);
     const u = unitPrice(p);
-    gross += u*q; postQty += u*(1-qd(q)/100)*q;
-    weight += (p.vol||0)*q;
+    gross += u*q; postQty += u*(1-qd(q)/100)*q; weight += (p.vol||0)*q;
   }
   const vp = vd(gross);
   const after = postQty - postQty*vp/100;
@@ -60,29 +57,42 @@ export default async (req) => {
   const parts = Array.isArray(body.parts) ? body.parts : [];
   if (!parts.length) return json({ error: "No parts in order." }, 400);
 
-  const amount = Math.round(orderTotal(parts, body.region, !!body.matCert) * 100); // cents — authoritative
+  const amount = Math.round(orderTotal(parts, body.region, !!body.matCert) * 100);
   if (amount < 50) return json({ error: "Order total too low." }, 400);
 
-  // return to the page the widget is embedded on (falls back to Stripe's own pages otherwise)
+  const totalParts = parts.reduce((s,p)=>s+(Math.max(1,parseInt(p.qty)||1)),0);
+  const totalVol   = Math.round(parts.reduce((s,p)=>s+(p.vol||0)*(Math.max(1,parseInt(p.qty)||1)),0)*100)/100;
+  const dyeAny   = parts.some(p=>p.dye);
+  const vaporAny = parts.some(p=>p.vs);
+  const summary = parts.map(p => (p.qty + "x " + p.name + " " + p.x + "x" + p.y + "x" + p.z + "mm" + (p.vs?" +vapor":"") + (p.dye?" +dye":""))).join("; ").slice(0, 460);
+  const orderNo = "WEB-" + new Date().toISOString().slice(0,10).replace(/-/g,"") + "-" + Math.floor(1000+Math.random()*9000);
+  const notes = (summary + (body.matCert?" | Material cert":"") + " | Paid via Stripe").slice(0, 495);
+
   let ret = (body.returnUrl && /^https?:\/\//.test(body.returnUrl)) ? body.returnUrl : (req.headers.get("origin") || "");
   const sep = ret.includes("?") ? "&" : "?";
-  const summary = parts.map(p =>
-    `${p.qty}x ${p.name} ${p.x}x${p.y}x${p.z}mm${p.vs?" +vapor":""}${p.dye?" +dye":""}`
-  ).join("; ").slice(0, 480);
 
   const f = new URLSearchParams();
   f.append("mode", "payment");
   if (ret) { f.append("success_url", ret+sep+"paid=1"); f.append("cancel_url", ret+sep+"canceled=1"); }
   f.append("line_items[0][price_data][currency]", "usd");
-  f.append("line_items[0][price_data][product_data][name]", "3DPX SLS order — Nylon 12 (PA12)");
+  f.append("line_items[0][price_data][product_data][name]", "3DPX SLS order - Nylon 12 (PA12)");
   f.append("line_items[0][price_data][product_data][description]", summary || "SLS parts");
   f.append("line_items[0][price_data][unit_amount]", String(amount));
   f.append("line_items[0][quantity]", "1");
-  f.append("metadata[customer_name]",  (body.name||"").slice(0,200));
+  f.append("metadata[order_no]", orderNo);
+  f.append("metadata[customer_name]", (body.name||"").slice(0,200));
+  f.append("metadata[company]", (body.company||"").slice(0,200));
+  f.append("metadata[customer_email]", (body.email||"").slice(0,200));
   f.append("metadata[customer_phone]", (body.phone||"").slice(0,60));
   f.append("metadata[region]", (body.region||"us"));
   f.append("metadata[material_cert]", body.matCert ? "yes" : "no");
-  f.append("metadata[order]", summary);
+  f.append("metadata[total_parts]", String(totalParts));
+  f.append("metadata[total_vol]", String(totalVol));
+  f.append("metadata[dye_any]", dyeAny ? "yes" : "no");
+  f.append("metadata[vapor_any]", vaporAny ? "yes" : "no");
+  f.append("metadata[color]", "White");
+  f.append("metadata[shipping_address]", (body.shipAddress||"").slice(0,480));
+  f.append("metadata[notes]", notes);
   if (body.email) f.append("customer_email", body.email);
 
   const r = await fetch("https://api.stripe.com/v1/checkout/sessions", {

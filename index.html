@@ -233,7 +233,7 @@
    To hide pricing from customers once you add online payment, move everything
    between these markers to a server endpoint and fetch the unit price instead. */
 /* ===== Online payment: set to true once the Stripe checkout function is deployed & key set (see PAYMENT-SETUP.md) ===== */
-const PAYMENTS_ENABLED = true;
+const PAYMENTS_ENABLED = false;
 const CHECKOUT_URL = "/.netlify/functions/create-checkout";
 
 const RULES = {
@@ -616,8 +616,9 @@ async function startPayment(){
     const r=await fetch(CHECKOUT_URL,{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({
         parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,dye:p.dye,vs:p.vs})),
-        name:v("cName"),email:v("cEmail"),phone:v("cPhone"),
+        name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone"),
         region:(document.getElementById("sRegion")||{}).value||"us",
+        shipAddress:[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "),
         matCert:document.getElementById("matCert").checked,
         returnUrl:document.referrer||location.href})});
     const data=await r.json().catch(()=>({}));
