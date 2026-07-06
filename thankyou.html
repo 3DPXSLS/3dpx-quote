@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Order received — 3DPX Additive Manufacturing</title>
+<style>
+  body{margin:0;font-family:-apple-system,'Segoe UI',Arial,sans-serif;background:#eef1f5;color:#1b2330;
+    display:flex;align-items:center;justify-content:center;min-height:100vh}
+  .card{background:#fff;max-width:520px;width:92%;border-radius:16px;box-shadow:0 10px 40px rgba(20,30,60,.12);
+    padding:40px 36px;text-align:center;border-top:5px solid #f26a21}
+  .brand{font-weight:800;letter-spacing:1px;color:#1b2a4a;font-size:20px}
+  .brand span{color:#f26a21}
+  .check{width:64px;height:64px;border-radius:50%;background:#e8f7ef;color:#1e7d52;font-size:34px;
+    display:flex;align-items:center;justify-content:center;margin:22px auto 8px;font-weight:700}
+  h1{font-size:22px;color:#1b2a4a;margin:6px 0 4px}
+  p{color:#42506b;font-size:15px;line-height:1.6;margin:8px 0}
+  .ord{display:inline-block;background:#f5f8fc;border:1px solid #dde3ee;border-radius:8px;
+    padding:8px 14px;font-weight:700;color:#1b2a4a;margin:10px 0}
+  .note{font-size:13px;color:#6b7891;margin-top:18px;border-top:1px solid #e2e8f2;padding-top:16px}
+  a.btn{display:inline-block;margin-top:20px;background:#1b2a4a;color:#fff;text-decoration:none;
+    padding:12px 22px;border-radius:9px;font-weight:700}
+  a.mail{color:#c0531a;font-weight:700;text-decoration:none}
+</style></head>
+<body>
+  <div class="card">
+    <div class="brand">3DPX <span>ADDITIVE MANUFACTURING</span></div>
+    <div class="check">&#10003;</div>
+    <h1>Payment received — thank you!</h1>
+    <div class="ord" id="ord">Order confirmed</div>
+    <p>Your SLS order is in. We'll email your confirmation and lead time shortly.</p>
+    <p class="note">If your STL file is large and didn't upload, please email it to
+      <a class="mail" href="mailto:sales@3dpx.com">sales@3dpx.com</a> with your order number.</p>
+    <a class="btn" href="https://www.3dpx.com/">Back to 3DPX</a>
+  </div>
+  <script>
+    var o=new URLSearchParams(location.search).get("order");
+    if(o) document.getElementById("ord").textContent="Order "+o;
+  </script>
+</body></html>

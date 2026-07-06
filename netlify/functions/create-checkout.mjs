@@ -81,7 +81,9 @@ export default async (req) => {
 
   const f = new URLSearchParams();
   f.append("mode", "payment");
-  if (ret) { f.append("success_url", ret+sep+"paid=1"); f.append("cancel_url", ret+sep+"canceled=1"); }
+  const origin = req.headers.get("origin") || (ret ? new URL(ret).origin : "");
+  f.append("success_url", (origin || ret) + "/thankyou.html?order=" + encodeURIComponent(orderNo));
+  if (ret) f.append("cancel_url", ret + sep + "canceled=1"); else if (origin) f.append("cancel_url", origin + "/?canceled=1");
   f.append("line_items[0][price_data][currency]", "usd");
   f.append("line_items[0][price_data][product_data][name]", "3DPX SLS order - Nylon 12 (PA12)");
   f.append("line_items[0][price_data][product_data][description]", summary || "SLS parts");
