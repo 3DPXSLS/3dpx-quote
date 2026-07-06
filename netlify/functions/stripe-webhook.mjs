@@ -46,9 +46,13 @@ export default async (req) => {
   if (!token) { console.log("No SMARTSHEET_TOKEN set; skipping row creation."); return new Response("ok (no token)", { status: 200 }); }
 
   const sheetId = process.env.SMARTSHEET_SHEET_ID || SLS_JOBS_SHEET;
-  const price = (s.amount_total != null ? s.amount_total : 0) / 100;
+  // With Stripe Tax on, amount_total includes tax. Record the pre-tax order value in Price and note the tax.
+  const subtotal = (s.amount_subtotal != null ? s.amount_subtotal : (s.amount_total || 0)) / 100;
+  const taxAmt = (s.total_details && s.total_details.amount_tax != null ? s.total_details.amount_tax : 0) / 100;
+  const price = subtotal;
   const contactVal = (m.customer_name || "") + (m.customer_email ? " <" + m.customer_email + ">" : "");
   const due = addBusinessDays(new Date(), parseInt(m.lead_days)||3).toISOString().slice(0,10);
+  const notesWithTax = taxAmt > 0 ? ((m.notes || "") + " | Tax collected: $" + taxAmt.toFixed(2)).slice(0,495) : (m.notes || "");
 
   const cells = [
     { columnId: COL.orderStatus, value: "Pre Sale", strict: false },
@@ -64,7 +68,7 @@ export default async (req) => {
     { columnId: COL.vapor,       value: m.vapor_any === "yes" },
     { columnId: COL.shipAddr,    value: m.shipping_address || "" },
     { columnId: COL.poType,      value: "Standard", strict: false },
-    { columnId: COL.notes,       value: m.notes || "" },
+    { columnId: COL.notes,       value: notesWithTax },
   ];
 
   const r = await fetch("https://api.smartsheet.com/2.0/sheets/" + sheetId + "/rows", {

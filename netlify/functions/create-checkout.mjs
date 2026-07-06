@@ -120,9 +120,16 @@ export default async (req) => {
   const origin = req.headers.get("origin") || (ret ? new URL(ret).origin : "");
   f.append("success_url", (origin || ret) + "/thankyou.html?order=" + encodeURIComponent(orderNo));
   if (ret) f.append("cancel_url", ret + sep + "canceled=1"); else if (origin) f.append("cancel_url", origin + "/?canceled=1");
+  // Sales tax: Stripe Tax computes the rate from the customer's address and only charges where
+  // you've added a tax registration (e.g. Illinois). Requires Stripe Tax to be activated in the
+  // dashboard (Settings -> Tax) with your origin address + an Illinois registration. Per-mode (test/live).
+  f.append("automatic_tax[enabled]", "true");
+  f.append("billing_address_collection", "required");  // gives Stripe the address it needs for tax
   f.append("line_items[0][price_data][currency]", "usd");
   f.append("line_items[0][price_data][product_data][name]", "3DPX SLS order - Nylon 12 (PA12)");
   f.append("line_items[0][price_data][product_data][description]", summary || "SLS parts");
+  f.append("line_items[0][price_data][product_data][tax_code]", "txcd_99999999");  // general tangible goods
+  f.append("line_items[0][price_data][tax_behavior]", "exclusive");  // tax added on top of the amount
   f.append("line_items[0][price_data][unit_amount]", String(amount));
   f.append("line_items[0][quantity]", "1");
   f.append("metadata[order_no]", orderNo);
