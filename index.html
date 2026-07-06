@@ -169,8 +169,15 @@
       <div><label>Email *</label><input id="cEmail" type="email" placeholder="you@company.com"></div>
       <div><label>Phone</label><input id="cPhone" placeholder="(optional)"></div>
     </div>
-    <h2 style="margin-top:22px">3 · Shipping address</h2>
+    <h2 style="margin-top:22px">3 · Delivery</h2>
     <div class="contact">
+      <div style="grid-column:1/-1"><label>Delivery method</label><select id="sSpeed">
+        <option value="ground">Ground shipping — 3–5 business days</option>
+        <option value="expedited">Expedited — 2 business days</option>
+        <option value="overnight">Overnight — next business day</option>
+        <option value="pickup">Pickup at 3DPX (Chicago, IL) — free</option>
+      </select></div>
+      <div id="pickupNote" style="grid-column:1/-1;display:none;font-size:12px;color:#1e7d52;background:#e8f7ef;border:1px solid #a9e0c3;border-radius:8px;padding:8px 12px"></div>
       <div style="grid-column:1/-1"><label>Street address</label><input id="sAddr" placeholder="123 Main St, Suite 100"></div>
       <div><label>City</label><input id="sCity"></div>
       <div><label>State / region</label><input id="sState"></div>
@@ -205,9 +212,13 @@
     </div>
   </div>
   <div class="ordernote" id="orderNote">
-    <b>To place your order:</b> click <b>Download PDF</b> to save your quote, then email it to
-    <a href="mailto:sales@3dpx.com">sales@3dpx.com</a> (attaching your STL file) for order confirmation.
-    We'll reply with confirmation, payment, and lead time.
+    <b>Ways to place your order:</b>
+    <div style="margin-top:8px;display:grid;gap:7px">
+      <div id="orderWayPay"><b>💳 Order &amp; pay online</b> — click <b>Order &amp; pay</b> above to check out securely by card. Your STL files upload automatically and your order goes straight into production. <i>Fastest option.</i></div>
+      <div><b>✉️ Email your quote</b> — click <b>Email quote</b> or <b>Download PDF</b>, then send it to <a href="mailto:sales@3dpx.com">sales@3dpx.com</a> with your STL file attached. We'll reply to confirm, arrange payment, and set your lead time.</div>
+      <div><b>📞 Call or email us</b> — reach our team at <a href="tel:+13128963399">(312) 896-3399</a> or <a href="mailto:sales@3dpx.com">sales@3dpx.com</a> for purchase orders, volume pricing, material certs, or any questions.</div>
+      <div style="color:#5a6678"><b>🏭 Local pickup</b> — choosing <b>Pickup at 3DPX</b> under Delivery ships free; we'll email you when your order is ready to collect in Chicago.</div>
+    </div>
   </div>
   <details class="specs">
     <summary>SLS · Nylon 12 — tolerances &amp; design specs</summary>
@@ -243,10 +254,57 @@ const RULES = {
   marketAdj:0.90,  // competitiveness factor: 0.90 = 10% below the base algorithm (set 1.0 to disable)
   leadBaseDays:3, leadThreshCc:3000, leadDivisor:4500,  // lead: <3000cc = 3 days; else ceil(totalVol/4500 + 3)
   density:0.95,        // g/cm³ printed PA12 — used to estimate package weight
-  // Shipping best-guess = max(shipMin, shipFlat + shipPerKg × kg) × region multiplier. All editable.
-  shipFlat:11, shipPerKg:3.5, shipMin:9.95, shipCaMxMult:2.0, shipIntlMult:3.5,
+  /* ---- Shipping estimate (billable weight model) — all editable ----
+     Carriers bill the GREATER of real weight (parts + packaging) or DIMENSIONAL weight
+     (box volume ÷ 139 in³/lb). SLS parts are light but bulky, so dim weight usually wins. */
+  packBaseLb:0.6,      // empty box + dunnage
+  packPerPartLb:0.05,  // extra padding per distinct part
+  packFactor:2.0,      // box void: parts fill ~half the box, rest is padding/air
+  dimDivisor:139,      // domestic UPS/FedEx dimensional divisor (in³ per lb)
+  shipRegionMult:{us:1.0, camx:1.6, intl:2.5}, // rough premium for non-US destinations
+  // US distance: dest ZIP first digit → approx carrier zone from Chicago (606); mult = 1 + (zone-4)*zoneStep.
+  zoneStep:0.09, zoneMultMin:0.80, zoneMultMax:1.35,
   matCertFee:100  // flat order-level material-certification add-on
 };
+/* Dest ZIP first digit → rough ground zone from Chicago, IL (606). Edit if your carrier chart differs. */
+const ZIP_ZONE = {'0':5,'1':5,'2':5,'3':4,'4':3,'5':4,'6':2,'7':5,'8':6,'9':7};
+function zoneInfo(zip, region){
+  if(region && region!=="us") return {zone:null, mult:1};   // region multiplier handles CA/MX + Intl
+  const d=(String(zip||"").match(/\d/)||[])[0];
+  const zone=ZIP_ZONE[d]||4;                                 // default mid-zone if unknown
+  const mult=Math.max(RULES.zoneMultMin, Math.min(RULES.zoneMultMax, 1+(zone-4)*RULES.zoneStep));
+  return {zone, mult:Math.round(mult*1000)/1000};
+}
+/* Delivery speeds — realistic per-speed carrier rates: max(min, base + perLb × billable lb) × region.
+   Pickup is always free. Keep in sync with create-checkout.mjs. */
+const SHIP_SPEEDS = {
+  ground:    {label:"Ground shipping",  eta:"3–5 business days",  base:12.5, perLb:1.15, min:12.5},
+  expedited: {label:"Expedited",        eta:"2 business days",    base:26,   perLb:2.60, min:26},
+  overnight: {label:"Overnight",        eta:"next business day",  base:52,   perLb:5.25, min:52},
+  pickup:    {label:"Pickup at 3DPX",   eta:"free",               free:true}
+};
+function shipSpeed(){const el=(typeof document!=="undefined")?document.getElementById("sSpeed"):null;const s=el?el.value:"ground";return SHIP_SPEEDS[s]?s:"ground";}
+function shipWeightLb(list){
+  let actualG=0, boxCC=0; const np=list.length;
+  for(const p of list){const q=Math.max(1,p.qty||1);
+    actualG += (p.vol||0)*q*RULES.density;      // grams of plastic
+    boxCC   += ((p.x*p.y*p.z)/1000)*q;          // bounding-box cc
+  }
+  const actualLb=actualG/1000*2.20462;
+  const packLb=RULES.packBaseLb+RULES.packPerPartLb*np;
+  const dimLb=(boxCC*RULES.packFactor/16.387)/RULES.dimDivisor;  // cc→in³→lb
+  return {actualLb, packLb, dimLb, billableLb:Math.max(actualLb+packLb, dimLb)};
+}
+function estimateShipping(list, region, speed, zip){
+  if(!list.length) return {shipping:0, billableLb:0, zone:null};
+  const sp=SHIP_SPEEDS[speed]?speed:"ground";
+  const w=shipWeightLb(list);
+  const z=zoneInfo(zip, region);
+  if(sp==="pickup"||SHIP_SPEEDS[sp].free) return {shipping:0, billableLb:w.billableLb, zone:z.zone};
+  const rm=RULES.shipRegionMult[region]||1, s=SHIP_SPEEDS[sp];
+  const raw=Math.max(s.min, s.base + s.perLb*w.billableLb)*rm*z.mult;
+  return {shipping:Math.round(raw*100)/100, billableLb:w.billableLb, zone:z.zone};
+}
 /* Discount tables (from your Price Breaks tab). Edit freely. */
 const QTY_BREAKS=[{q:1,d:0},{q:2,d:5},{q:10,d:12},{q:50,d:18},{q:100,d:25},{q:250,d:32},{q:500,d:38},{q:1000,d:45}]; // per-part qty → % off
 const VALUE_BREAKS=[{v:200,d:5},{v:2000,d:10}]; // order value $ → % off
@@ -297,13 +355,14 @@ function orderTotals(){
     if(valAlt>=qtyDisc){ afterDisc=gross-valAlt; qtyDiscShown=0; valDiscShown=valAlt; valPctShown=vPct; }
     else { afterDisc=postQty; } }
   const topUp=parts.length?Math.max(0,RULES.orderMin-afterDisc):0;
-  const weightKg=parts.reduce((s,p)=>s+(p.vol||0)*(p.qty||0),0)*RULES.density/1000;
   const region=(typeof document!=="undefined"&&document.getElementById("sRegion"))?document.getElementById("sRegion").value:"us";
-  const shipMult=region==="intl"?RULES.shipIntlMult:(region==="camx"?RULES.shipCaMxMult:1);
-  const shipping=parts.length?Math.round(Math.max(RULES.shipMin,RULES.shipFlat+RULES.shipPerKg*weightKg)*shipMult*100)/100:0;
+  const zip=(typeof document!=="undefined"&&document.getElementById("sZip"))?document.getElementById("sZip").value:"";
+  const speed=shipSpeed(), pickup=(speed==="pickup");
+  const est=estimateShipping(parts, region, speed, zip);
+  const shipping=est.shipping, billableLb=est.billableLb, zone=est.zone;
   const matCert=(parts.length&&typeof document!=="undefined"&&document.getElementById("matCert")&&document.getElementById("matCert").checked)?RULES.matCertFee:0;
   return {gross, qtyDisc:qtyDiscShown, valPct:valPctShown, valDisc:valDiscShown, afterDisc, topUp,
-          shipping, weightKg, matCert, total:afterDisc+topUp+shipping+matCert, saved:gross-afterDisc};
+          shipping, billableLb, zone, matCert, speed, pickup, total:afterDisc+topUp+shipping+matCert, saved:gross-afterDisc};
 }
 function regionLabel(){const r=(document.getElementById("sRegion")||{}).value;return r==="intl"?"International":r==="camx"?"Canada / Mexico":"United States";}
 /* ============================ <<< END PRICING ENGINE >>> ============================ */
@@ -487,7 +546,8 @@ function render(){
   lines+=`<div class="oline"><span>Subtotal</span><b>${money(t.gross)}</b></div>`;
   if(t.saved>0.005) lines+=`<div class="oline save"><span>Discounts (save ${Math.round(t.saved/t.gross*100)}%)</span><b>−${money(t.saved)}</b></div>`;
   if(t.topUp>0) lines+=`<div class="oline"><span>Order minimum top-up</span><b>${money(t.topUp)}</b></div>`;
-  lines+=`<div class="oline"><span>Est. shipping${t.weightKg>0?` · ~${t.weightKg.toFixed(2)} kg`:""}</span><b>${t.shipping>0?money(t.shipping):"quoted separately"}</b></div>`;
+  if(t.pickup) lines+=`<div class="oline"><span>Pickup at 3DPX (Chicago, IL)</span><b style="color:#1e9e6a">Free</b></div>`;
+  else lines+=`<div class="oline"><span>Est. shipping · ${SHIP_SPEEDS[t.speed].label}${t.billableLb>0?` · ~${t.billableLb.toFixed(1)} lb`:""}${t.zone?` · zone ${t.zone}`:""}</span><b>${t.shipping>0?money(t.shipping):"quoted separately"}</b></div>`;
   lines+=`<div class="oline"><span>Sales tax</span><b>calculated at checkout</b></div>`;
   lines+=`<div class="oline"><span>⏱ Est. lead time</span><b>${orderLeadDays()} business days</b></div>`;
   if(t.matCert>0) lines+=`<div class="oline"><span>Material certification</span><b>${money(t.matCert)}</b></div>`;
@@ -513,7 +573,9 @@ function buildQuoteDoc(qn){
     <td style="padding:8px 6px;${bd};text-align:right">${money(c.net)}</td>
     <td style="padding:8px 6px;${bd};text-align:right;font-weight:700">${money(c.lineNet)}</td></tr>`;}).join("");
   const name=v("cName"),co=v("cCo"),email=v("cEmail"),phone=v("cPhone");
-  const ship=[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", ");
+  const ship=t.pickup?"Pickup at 3DPX — 410 N. Milwaukee, Chicago, IL 60654":[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", ");
+  const shipRowLabel=t.pickup?"Pickup at 3DPX":`Est. shipping · ${SHIP_SPEEDS[t.speed].label}${t.billableLb>0?` (~${t.billableLb.toFixed(1)} lb)`:""}`;
+  const shipRowVal=t.pickup?"Free":(t.shipping>0?money(t.shipping):"quoted separately");
   const date=new Date().toLocaleDateString("en-US",{year:"numeric",month:"long",day:"numeric"});
   return `
   <div style="font-family:-apple-system,'Segoe UI',Arial,sans-serif;color:#1b2330;max-width:730px;margin:0 auto;padding:6px 2px;line-height:1.5">
@@ -552,7 +614,7 @@ function buildQuoteDoc(qn){
       ${t.qtyDisc>0.005?`<div style="display:flex;justify-content:space-between;padding:3px 0;color:#1e9e6a"><span>Quantity discount</span><span>−${money(t.qtyDisc)}</span></div>`:""}
       ${t.valDisc>0.005?`<div style="display:flex;justify-content:space-between;padding:3px 0;color:#1e9e6a"><span>Order-value discount (${t.valPct}%)</span><span>−${money(t.valDisc)}</span></div>`:""}
       ${t.topUp>0?`<div style="display:flex;justify-content:space-between;padding:3px 0"><span>Order minimum top-up</span><span>${money(t.topUp)}</span></div>`:""}
-      <div style="display:flex;justify-content:space-between;padding:3px 0;color:#42506b"><span>Est. shipping${t.weightKg>0?` (~${t.weightKg.toFixed(2)} kg)`:""}</span><span>${t.shipping>0?money(t.shipping):"quoted separately"}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;color:#42506b"><span>${shipRowLabel}</span><span>${shipRowVal}</span></div>
       <div style="display:flex;justify-content:space-between;padding:3px 0;color:#42506b"><span>Sales tax</span><span>calculated at checkout</span></div>
       ${t.matCert>0?`<div style="display:flex;justify-content:space-between;padding:3px 0"><span>Material certification</span><span>${money(t.matCert)}</span></div>`:""}
       ${t.saved>0.005?`<div style="display:flex;justify-content:space-between;padding:5px 0 3px;color:#1e9e6a;font-weight:700;border-top:1px solid #eef2f8;margin-top:3px"><span>You save</span><span>${money(t.saved)} (${Math.round(t.saved/t.gross*100)}%)</span></div>`:""}
@@ -580,13 +642,13 @@ document.getElementById("dlBtn").onclick=()=>{
 document.getElementById("emailBtn").onclick=()=>{
   if(!validEmail())return;
   const qn=quoteNum(),t=orderTotals();
-  const ship=[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", ");
-  let body=`New SLS quote request%0D%0A%0D%0AQuote #: ${qn}%0D%0AName: ${v("cName")}%0D%0ACompany: ${v("cCo")}%0D%0AEmail: ${v("cEmail")}%0D%0APhone: ${v("cPhone")}%0D%0AShip to: ${ship||"(not provided)"}%0D%0A%0D%0APARTS:%0D%0A`;
+  const ship=t.pickup?"Pickup at 3DPX (Chicago, IL)":([v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "));
+  let body=`New SLS quote request%0D%0A%0D%0AQuote #: ${qn}%0D%0AName: ${v("cName")}%0D%0ACompany: ${v("cCo")}%0D%0AEmail: ${v("cEmail")}%0D%0APhone: ${v("cPhone")}%0D%0ADelivery: ${SHIP_SPEEDS[t.speed].label} (${SHIP_SPEEDS[t.speed].eta})%0D%0AShip to: ${ship||"(not provided)"}%0D%0A%0D%0APARTS:%0D%0A`;
   parts.forEach((p,i)=>{const c=lineCalc(p);
     body+=`${i+1}. ${p.name} | qty ${p.qty} | ${p.x}x${p.y}x${p.z}mm | ${p.vol}cc | ${finishLabel(p)} | ${money(c.net)} ea = ${money(c.lineNet)}${c.qp>0?` (${c.qp}% qty disc)`:""}%0D%0A`;});
   body+=`%0D%0ASubtotal (list): ${money(t.gross)}`;
   if(t.saved>0.005) body+=`%0D%0ADiscounts: -${money(t.saved)}`;
-  body+=`%0D%0AShipping${t.weightKg>0?` (~${t.weightKg.toFixed(2)} kg)`:""}: ${t.shipping>0?money(t.shipping):"quoted separately"}`;
+  body+=t.pickup?`%0D%0APickup at 3DPX: Free`:`%0D%0AShipping · ${SHIP_SPEEDS[t.speed].label}${t.billableLb>0?` (~${t.billableLb.toFixed(1)} lb)`:""}: ${t.shipping>0?money(t.shipping):"quoted separately"}`;
   if(t.matCert>0) body+=`%0D%0AMaterial certification: ${money(t.matCert)}`;
   body+=`%0D%0AEst. lead time: ${orderLeadDays()} business days`;
   body+=`%0D%0AESTIMATED TOTAL: ${money(t.total)} (ex tax & shipping)%0D%0A%0D%0A** Please attach your STL file(s) to this email. **`;
@@ -602,7 +664,17 @@ document.getElementById("stlInput").onchange=e=>{if(e.target.files.length)handle
 drop.addEventListener("drop",e=>{if(e.dataTransfer.files.length)handleFiles(e.dataTransfer.files);});
 ["cName","cCo","cEmail","cPhone"].forEach(id=>document.getElementById(id).addEventListener("input",()=>{}));
 document.getElementById("sRegion").addEventListener("change",render);
+document.getElementById("sZip").addEventListener("input",render);
 document.getElementById("matCert").addEventListener("change",render);
+function toggleShip(){
+  const pickup=shipSpeed()==="pickup";
+  ["sAddr","sCity","sState","sZip","sRegion"].forEach(id=>{const el=document.getElementById(id);if(el){el.disabled=pickup;el.style.opacity=pickup?0.5:1;}});
+  const n=document.getElementById("pickupNote");
+  if(n){n.style.display=pickup?"block":"none";
+    n.innerHTML=pickup?"📍 <b>Free pickup</b> at 3DPX — 410 N. Milwaukee, Chicago, IL 60654. We'll email you when your order is ready to collect.":"";}
+  render();
+}
+document.getElementById("sSpeed").addEventListener("change",toggleShip);
 document.getElementById("bulkQtyApply").onclick=()=>{const q=Math.max(1,parseInt(document.getElementById("bulkQty").value)||1);parts.forEach(p=>p.qty=q);render();};
 document.querySelectorAll("[data-bulk]").forEach(b=>b.onclick=()=>{const[k,v]=b.dataset.bulk.split("-");parts.forEach(p=>p[k]=(v==="on"));render();});
 
@@ -629,7 +701,9 @@ async function startPayment(){
         parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,dye:p.dye,vs:p.vs})),
         name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone"),
         region:(document.getElementById("sRegion")||{}).value||"us",
-        shipAddress:[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "),
+        zip:v("sZip"),
+        shipSpeed:shipSpeed(),
+        shipAddress:(shipSpeed()==="pickup")?"Pickup at 3DPX (Chicago, IL)":[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "),
         matCert:document.getElementById("matCert").checked,
         returnUrl:document.referrer||location.href})});
     const data=await r.json().catch(()=>({}));
@@ -642,6 +716,8 @@ async function startPayment(){
 }
 if(PAYMENTS_ENABLED){
   const pb=document.getElementById("payBtn"); pb.style.display=""; pb.onclick=startPayment;
+} else {
+  const w=document.getElementById("orderWayPay"); if(w) w.style.display="none";
 }
 (function(){const q=new URLSearchParams(location.search);const b=document.getElementById("payBanner");
   if(q.get("paid")){b.style.display="block";b.style.background="#e8f7ef";b.style.border="1px solid #a9e0c3";b.style.color="#1e7d52";
@@ -649,6 +725,7 @@ if(PAYMENTS_ENABLED){
   else if(q.get("canceled")){b.style.display="block";b.style.background="#fff5ef";b.style.border="1px solid #f7c9a8";b.style.color="#8a4b1e";
     b.innerHTML="Checkout canceled — your quote is still here whenever you're ready.";}
 })();
+toggleShip();
 render();
 
 /* ---- auto-resize: tell the parent page our height when embedded in an iframe ---- */
