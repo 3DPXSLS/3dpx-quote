@@ -43,7 +43,7 @@
   .part .price{font-weight:700;color:var(--navy);white-space:nowrap}
   .part .thumb{width:64px;height:64px;border-radius:8px;border:1px solid var(--line);background:#fff;object-fit:contain;flex:none}
   .part .viewwrap{flex:none;text-align:center}
-  .part .viewslot{width:120px;height:120px;border:1px solid var(--line);border-radius:10px;background:#f5f8fc;overflow:hidden;position:relative}
+  .part .viewslot{width:120px;height:120px;border:1px solid var(--line);border-radius:10px;background:radial-gradient(circle at 50% 38%, #f4f6fa 0%, #d9dfe8 100%);overflow:hidden;position:relative}
   .part .viewslot canvas{width:120px !important;height:120px !important;display:block;cursor:grab;touch-action:none}
   .part .viewslot canvas:active{cursor:grabbing}
   .part .viewhint{font-size:10.5px;color:var(--muted);margin-top:3px}
@@ -155,7 +155,9 @@
     <label>Qty <input type="number" min="1" step="1" id="bulkQty" value="1"></label>
     <button id="bulkQtyApply">Set all</button>
     <span class="sep">|</span>
-    <button data-bulk="dye-on">Dye all</button><button data-bulk="dye-off">Remove dye</button>
+    <label>Color <select id="bulkColor"><option value="natural">White (Natural)</option><option value="black">Black</option><option value="blue">Blue</option><option value="green">Green</option><option value="red">Red</option><option value="yellow">Yellow</option></select></label>
+    <button id="bulkColorApply">Set color</button>
+    <span class="sep">|</span>
     <button data-bulk="vs-on">Vapor all</button><button data-bulk="vs-off">Remove vapor</button>
   </div>
 
@@ -175,9 +177,22 @@
         <option value="ground">Ground shipping — 3–5 business days</option>
         <option value="expedited">Expedited — 2 business days</option>
         <option value="overnight">Overnight — next business day</option>
+        <option value="account">Use my own carrier account — free</option>
         <option value="pickup">Pickup at 3DPX (Chicago, IL) — free</option>
       </select></div>
       <div id="pickupNote" style="grid-column:1/-1;display:none;font-size:12px;color:#1e7d52;background:#e8f7ef;border:1px solid #a9e0c3;border-radius:8px;padding:8px 12px"></div>
+      <div id="acctFields" style="grid-column:1/-1;display:none">
+        <div class="contact" style="margin:0">
+          <div><label>Carrier</label><select id="sCarrier">
+            <option value="UPS">UPS</option>
+            <option value="FedEx">FedEx</option>
+            <option value="DHL">DHL</option>
+            <option value="Other">Other</option>
+          </select></div>
+          <div><label>Your shipping account #</label><input id="sAcct" placeholder="Account number"></div>
+        </div>
+        <div style="font-size:12px;color:#1e7d52;background:#e8f7ef;border:1px solid #a9e0c3;border-radius:8px;padding:8px 12px;margin-top:8px">📦 We'll ship on your carrier account — <b>$0 shipping</b> added to your order. Enter your account number above and we'll bill the freight to it.</div>
+      </div>
       <div style="grid-column:1/-1"><label>Street address</label><input id="sAddr" placeholder="123 Main St, Suite 100"></div>
       <div><label>City</label><input id="sCity"></div>
       <div><label>State / region</label><input id="sState"></div>
@@ -281,6 +296,7 @@ const SHIP_SPEEDS = {
   ground:    {label:"Ground shipping",  eta:"3–5 business days",  base:12.5, perLb:1.15, min:12.5},
   expedited: {label:"Expedited",        eta:"2 business days",    base:26,   perLb:2.60, min:26},
   overnight: {label:"Overnight",        eta:"next business day",  base:52,   perLb:5.25, min:52},
+  account:   {label:"Your carrier account", eta:"billed to your account", free:true},
   pickup:    {label:"Pickup at 3DPX",   eta:"free",               free:true}
 };
 function shipSpeed(){const el=(typeof document!=="undefined")?document.getElementById("sSpeed"):null;const s=el?el.value:"ground";return SHIP_SPEEDS[s]?s:"ground";}
@@ -319,7 +335,19 @@ const FINISH = {  // finishing add-ons (stackable). Bead blast is standard & inc
   dyePct:5, dyeDays:1,         // Dyed black: +5%, +1 business day
   vsPct:30,  vsMin:15, vsDays:1 // Vapor smooth: +30% ($15/part floor), +1 business day
 };
-function finishLabel(p){const a=[];if(p.vs)a.push("Vapor smooth");if(p.dye)a.push("Dyed black");return a.length?a.join(" + "):"Standard";}
+/* Dye colors (all +5% / +1 day, same as black). hex is used for the 3D preview. */
+const COLORS={
+  natural:{label:"White (Natural)",hex:0xE8E2D5},
+  black:{label:"Black",hex:0x202024},
+  blue:{label:"Blue",hex:0x2f5bb5},
+  green:{label:"Green",hex:0x2e8b57},
+  red:{label:"Red",hex:0xb5322f},
+  yellow:{label:"Yellow",hex:0xd8a400}
+};
+function partColor(p){return (p&&p.color&&COLORS[p.color])?p.color:"natural";}
+function colorLabel(p){const c=partColor(p);return c==="natural"?"White (Natural)":("Dyed "+COLORS[c].label);}
+function partHex(p){return COLORS[partColor(p)].hex;}
+function finishLabel(p){const a=[];if(p.vs)a.push("Vapor smooth");if(p.dye)a.push("Dyed "+COLORS[partColor(p)].label);return a.length?a.join(" + "):"Standard";}
 /* Lead time from TOTAL order volume (your template: <3000cc = base days; else vol/divisor + base), plus finishing. */
 function orderBaseDays(){let tv=0;parts.forEach(p=>tv+=(p.vol||0)*(p.qty||0));
   const b=tv<RULES.leadThreshCc?RULES.leadBaseDays:(tv/RULES.leadDivisor+RULES.leadBaseDays);return Math.ceil(b);}
@@ -357,12 +385,12 @@ function orderTotals(){
   const topUp=parts.length?Math.max(0,RULES.orderMin-afterDisc):0;
   const region=(typeof document!=="undefined"&&document.getElementById("sRegion"))?document.getElementById("sRegion").value:"us";
   const zip=(typeof document!=="undefined"&&document.getElementById("sZip"))?document.getElementById("sZip").value:"";
-  const speed=shipSpeed(), pickup=(speed==="pickup");
+  const speed=shipSpeed(), pickup=(speed==="pickup"), account=(speed==="account");
   const est=estimateShipping(parts, region, speed, zip);
   const shipping=est.shipping, billableLb=est.billableLb, zone=est.zone;
   const matCert=(parts.length&&typeof document!=="undefined"&&document.getElementById("matCert")&&document.getElementById("matCert").checked)?RULES.matCertFee:0;
   return {gross, qtyDisc:qtyDiscShown, valPct:valPctShown, valDisc:valDiscShown, afterDisc, topUp,
-          shipping, billableLb, zone, matCert, speed, pickup, total:afterDisc+topUp+shipping+matCert, saved:gross-afterDisc};
+          shipping, billableLb, zone, matCert, speed, pickup, account, total:afterDisc+topUp+shipping+matCert, saved:gross-afterDisc};
 }
 function regionLabel(){const r=(document.getElementById("sRegion")||{}).value;return r==="intl"?"International":r==="camx"?"Canada / Mexico":"United States";}
 /* ============================ <<< END PRICING ENGINE >>> ============================ */
@@ -445,6 +473,17 @@ function animViewers(){let any=false;
     v.mesh.rotation.x=v.rotX;v.mesh.rotation.y=v.rotY;v.renderer.render(v.scene,v.cam);}
   if(any)requestAnimationFrame(animViewers);else _anim=false;}
 function startAnim(){if(!_anim){_anim=true;requestAnimationFrame(animViewers);}}
+/* Preview material reflects the selected color + finish:
+   dye → near-black, else natural PA12 off-white; vapor smooth → glossy, standard SLS → matte. */
+function finishMat(p){return new THREE.MeshPhongMaterial({
+  color:partHex(p),
+  shininess:(p&&p.vs)?60:5,
+  specular:new THREE.Color((p&&p.vs)?0x6a6a6a:0x141414)});}
+function applyFinish(mat,p){if(!mat||!mat.color)return;
+  mat.color.set(partHex(p));
+  mat.shininess=p.vs?60:5;
+  if(mat.specular)mat.specular.set(p.vs?0x6a6a6a:0x141414);
+  mat.needsUpdate=true;}
 function createViewer(part){
   if(!window.THREE||!part.geo)return;
   const canvas=document.createElement("canvas");canvas.width=300;canvas.height=300;
@@ -457,7 +496,7 @@ function createViewer(part){
   g.computeVertexNormals();g.computeBoundingBox();
   const ctr=g.boundingBox.getCenter(new THREE.Vector3());g.translate(-ctr.x,-ctr.y,-ctr.z);
   const sz=g.boundingBox.getSize(new THREE.Vector3());const rad=Math.max(sz.x,sz.y,sz.z)||1;
-  const mesh=new THREE.Mesh(g,new THREE.MeshPhongMaterial({color:0x33415c,shininess:18}));scene.add(mesh);
+  const mesh=new THREE.Mesh(g,finishMat(part));scene.add(mesh);
   cam.position.set(0,0,rad*2.5);cam.lookAt(0,0,0);
   const v={canvas,renderer:r,scene,cam,mesh,rotX:0.4,rotY:0.6,auto:true,drag:false,lx:0,ly:0};
   const down=e=>{v.drag=true;v.auto=false;const q=e.touches?e.touches[0]:e;v.lx=q.clientX;v.ly=q.clientY;if(e.cancelable)e.preventDefault();};
@@ -474,7 +513,7 @@ function handleFiles(files){[...files].forEach(file=>{
   rd.onload=e=>{try{const r=parseSTL(e.target.result);if(!r.count)throw 0;
     const part={id:++pid,name:file.name.replace(/\.stl$/i,""),fileName:file.name,fileBuf:e.target.result,
       x:+r.x.toFixed(1),y:+r.y.toFixed(1),z:+r.z.toFixed(1),vol:+(r.volMM3/1000).toFixed(2),
-      qty:1,dye:false,vs:false,geo:r.pos,area:r.areaMM2,thumb:renderThumb(r.pos)};
+      qty:1,color:"natural",dye:false,vs:false,geo:r.pos,area:r.areaMM2,thumb:renderThumb(r.pos)};
     parts.push(part); createViewer(part);
     render();}catch(err){alert("Couldn't read "+file.name+". Please check it's a valid STL.");}};
   rd.readAsArrayBuffer(file);});}
@@ -495,7 +534,8 @@ function render(){
         <div style="display:flex;gap:12px;align-items:flex-start;min-width:0">
           ${window.THREE&&p.geo?`<div class="viewwrap"><div class="viewslot" data-view="${p.id}" title="Drag to rotate"></div><div class="viewhint">↻ drag to rotate</div></div>`:(p.thumb?`<img class="thumb" src="${p.thumb}" alt="3D preview of ${esc(p.name)}">`:"")}
           <div style="min-width:0"><div class="nm">${esc(p.name)}</div>
-          <div class="dims">${p.x}×${p.y}×${p.z} mm · ${p.vol} cm³ · qty <b>${p.qty}</b>${c.qp>0?` · <span class="save">${c.qp}% qty discount</span>`:""}</div></div>
+          <div class="dims">${p.x}×${p.y}×${p.z} mm · ${p.vol} cm³ · qty <b>${p.qty}</b>${c.qp>0?` · <span class="save">${c.qp}% qty discount</span>`:""}</div>
+          <div class="dims" style="opacity:.7;margin-top:1px">${(p.x/25.4).toFixed(2)}×${(p.y/25.4).toFixed(2)}×${(p.z/25.4).toFixed(2)} in · ${(p.vol*0.0610237).toFixed(2)} in³</div></div>
         </div>
         <div style="display:flex;align-items:center;gap:12px">
           <div style="text-align:right">
@@ -506,13 +546,21 @@ function render(){
       </div>
       <div class="opts">
         <div class="o"><label>Quantity</label><input type="number" min="1" step="1" data-k="qty" data-id="${p.id}" value="${p.qty}"></div>
+        <div class="o"><label>Color</label>
+          <select data-k="color" data-id="${p.id}">
+            <option value="natural"${partColor(p)==="natural"?" selected":""}>White (Natural) — included</option>
+            <option value="black"${partColor(p)==="black"?" selected":""}>Dyed Black (+5%, +1 day)</option>
+            <option value="blue"${partColor(p)==="blue"?" selected":""}>Dyed Blue (+5%, +1 day)</option>
+            <option value="green"${partColor(p)==="green"?" selected":""}>Dyed Green (+5%, +1 day)</option>
+            <option value="red"${partColor(p)==="red"?" selected":""}>Dyed Red (+5%, +1 day)</option>
+            <option value="yellow"${partColor(p)==="yellow"?" selected":""}>Dyed Yellow (+5%, +1 day)</option>
+          </select></div>
         <div class="o"><label>Finishing (optional)</label>
-          <label class="chk"><input type="checkbox" data-k="dye" data-id="${p.id}" ${p.dye?"checked":""}> Dyed black (+5%, +1 day)</label>
           <label class="chk"><input type="checkbox" data-k="vs" data-id="${p.id}" ${p.vs?"checked":""}> Vapor smooth (+30%, +1 day)</label></div>
       </div>
       <div class="config">
         <div class="crow"><span>Process</span><b>Selective Laser Sintering (SLS)</b></div>
-        <div class="crow"><span>Material</span><b>Nylon 12 (PA12) — White (Natural)</b></div>
+        <div class="crow"><span>Material</span><b>Nylon 12 (PA12) — ${colorLabel(p)}</b></div>
         <div class="crow"><span>Finish</span><b>${finishLabel(p)}</b></div>
         <div class="crow"><span>Measurement</span><b>${p.x} × ${p.y} × ${p.z} mm · ${p.vol} cm³<br><span class="cin">${(p.x/25.4).toFixed(3)} × ${(p.y/25.4).toFixed(3)} × ${(p.z/25.4).toFixed(3)} in · ${(p.vol*0.0610237).toFixed(3)} in³</span></b></div>
         <div class="crow"><span>Inspection</span><b>Standard</b></div>
@@ -529,9 +577,10 @@ function render(){
       const k=inp.dataset.k;
       if(inp.type==="checkbox") p[k]=inp.checked;
       else p[k]=(k==="qty")?(parseInt(inp.value)||1):inp.value;
+      if(k==="color") p.dye=(p.color!=="natural");
       render();});
   });
-  parts.forEach(p=>{const slot=ul.querySelector('.viewslot[data-view="'+p.id+'"]');if(slot&&viewers[p.id])slot.appendChild(viewers[p.id].canvas);});
+  parts.forEach(p=>{const slot=ul.querySelector('.viewslot[data-view="'+p.id+'"]');const vv=viewers[p.id];if(slot&&vv){slot.appendChild(vv.canvas);applyFinish(vv.mesh.material,p);}});
 
   const has=parts.length>0;
   document.getElementById("bulkBar").style.display=parts.length>1?"flex":"none";
@@ -547,6 +596,7 @@ function render(){
   if(t.saved>0.005) lines+=`<div class="oline save"><span>Discounts (save ${Math.round(t.saved/t.gross*100)}%)</span><b>−${money(t.saved)}</b></div>`;
   if(t.topUp>0) lines+=`<div class="oline"><span>Order minimum top-up</span><b>${money(t.topUp)}</b></div>`;
   if(t.pickup) lines+=`<div class="oline"><span>Pickup at 3DPX (Chicago, IL)</span><b style="color:#1e9e6a">Free</b></div>`;
+  else if(t.account) lines+=`<div class="oline"><span>Shipping · your carrier account${(document.getElementById("sCarrier")||{}).value?` (${(document.getElementById("sCarrier")||{}).value})`:""}</span><b style="color:#1e9e6a">Billed to you</b></div>`;
   else lines+=`<div class="oline"><span>Est. shipping · ${SHIP_SPEEDS[t.speed].label}${t.billableLb>0?` · ~${t.billableLb.toFixed(1)} lb`:""}${t.zone?` · zone ${t.zone}`:""}</span><b>${t.shipping>0?money(t.shipping):"quoted separately"}</b></div>`;
   lines+=`<div class="oline"><span>Sales tax</span><b>calculated at checkout</b></div>`;
   lines+=`<div class="oline"><span>⏱ Est. lead time</span><b>${orderLeadDays()} business days</b></div>`;
@@ -566,16 +616,17 @@ function buildQuoteDoc(qn){
   const t=orderTotals();
   const rows=parts.map((p,i)=>{const c=lineCalc(p);const bd="border-bottom:1px solid #eef2f8";const bg=i%2?"background:#fafbfd;":"";return `<tr style="${bg}">
     <td style="padding:8px 6px;${bd}"><div style="display:flex;align-items:center;gap:8px">${p.thumb?`<img src="${p.thumb}" style="width:34px;height:34px;border:1px solid #e2e8f2;border-radius:5px;object-fit:contain">`:""}<span style="font-weight:600">${esc(p.name)}</span></div></td>
-    <td style="padding:8px 6px;${bd};font-size:11px;color:#42506b">SLS · Nylon 12 · White</td>
-    <td style="padding:8px 6px;${bd}">${p.x}×${p.y}×${p.z}</td>
+    <td style="padding:8px 6px;${bd};font-size:11px;color:#42506b">SLS · Nylon 12 · ${p.dye?("Dyed "+COLORS[partColor(p)].label):"White"}</td>
+    <td style="padding:8px 6px;${bd}">${p.x}×${p.y}×${p.z} mm<div style="font-size:10px;color:#6b7891">${(p.x/25.4).toFixed(2)}×${(p.y/25.4).toFixed(2)}×${(p.z/25.4).toFixed(2)} in</div></td>
     <td style="padding:8px 6px;${bd}">${finishLabel(p)}${c.qp>0?` <span style="color:#1e9e6a">(−${c.qp}%)</span>`:""}</td>
     <td style="padding:8px 6px;${bd};text-align:center">${p.qty}</td>
     <td style="padding:8px 6px;${bd};text-align:right">${money(c.net)}</td>
     <td style="padding:8px 6px;${bd};text-align:right;font-weight:700">${money(c.lineNet)}</td></tr>`;}).join("");
   const name=v("cName"),co=v("cCo"),email=v("cEmail"),phone=v("cPhone");
-  const ship=t.pickup?"Pickup at 3DPX — 410 N. Milwaukee, Chicago, IL 60654":[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", ");
-  const shipRowLabel=t.pickup?"Pickup at 3DPX":`Est. shipping · ${SHIP_SPEEDS[t.speed].label}${t.billableLb>0?` (~${t.billableLb.toFixed(1)} lb)`:""}`;
-  const shipRowVal=t.pickup?"Free":(t.shipping>0?money(t.shipping):"quoted separately");
+  const acctLine=t.account?`${v("sCarrier")||"Carrier"} account ${v("sAcct")||"(number to be provided)"}`:"";
+  const ship=t.pickup?"Pickup at 3DPX — 410 N. Milwaukee, Chicago, IL 60654":([v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", ")+(t.account?` · Ship via ${acctLine}`:""));
+  const shipRowLabel=t.pickup?"Pickup at 3DPX":t.account?`Shipping · your carrier account (${v("sCarrier")||"carrier"})`:`Est. shipping · ${SHIP_SPEEDS[t.speed].label}${t.billableLb>0?` (~${t.billableLb.toFixed(1)} lb)`:""}`;
+  const shipRowVal=t.pickup?"Free":t.account?"Billed to your account":(t.shipping>0?money(t.shipping):"quoted separately");
   const date=new Date().toLocaleDateString("en-US",{year:"numeric",month:"long",day:"numeric"});
   return `
   <div style="font-family:-apple-system,'Segoe UI',Arial,sans-serif;color:#1b2330;max-width:730px;margin:0 auto;padding:6px 2px;line-height:1.5">
@@ -604,7 +655,7 @@ function buildQuoteDoc(qn){
     <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:10px">
       <thead><tr style="background:#eef2f8;color:#1b2a4a;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px">
         <th style="padding:8px 6px">Part</th><th style="padding:8px 6px">Process / material</th>
-        <th style="padding:8px 6px">Size (mm)</th><th style="padding:8px 6px">Finish</th>
+        <th style="padding:8px 6px">Size</th><th style="padding:8px 6px">Finish</th>
         <th style="padding:8px 6px;text-align:center">Qty</th>
         <th style="padding:8px 6px;text-align:right">Unit</th><th style="padding:8px 6px;text-align:right">Line</th></tr></thead>
       <tbody>${rows}</tbody></table>
@@ -643,12 +694,13 @@ document.getElementById("emailBtn").onclick=()=>{
   if(!validEmail())return;
   const qn=quoteNum(),t=orderTotals();
   const ship=t.pickup?"Pickup at 3DPX (Chicago, IL)":([v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "));
-  let body=`New SLS quote request%0D%0A%0D%0AQuote #: ${qn}%0D%0AName: ${v("cName")}%0D%0ACompany: ${v("cCo")}%0D%0AEmail: ${v("cEmail")}%0D%0APhone: ${v("cPhone")}%0D%0ADelivery: ${SHIP_SPEEDS[t.speed].label} (${SHIP_SPEEDS[t.speed].eta})%0D%0AShip to: ${ship||"(not provided)"}%0D%0A%0D%0APARTS:%0D%0A`;
+  const deliv=t.account?`My own carrier account — ${v("sCarrier")||"carrier"} ${v("sAcct")||"(number to be provided)"}`:`${SHIP_SPEEDS[t.speed].label} (${SHIP_SPEEDS[t.speed].eta})`;
+  let body=`New SLS quote request%0D%0A%0D%0AQuote #: ${qn}%0D%0AName: ${v("cName")}%0D%0ACompany: ${v("cCo")}%0D%0AEmail: ${v("cEmail")}%0D%0APhone: ${v("cPhone")}%0D%0ADelivery: ${deliv}%0D%0AShip to: ${ship||"(not provided)"}%0D%0A%0D%0APARTS:%0D%0A`;
   parts.forEach((p,i)=>{const c=lineCalc(p);
     body+=`${i+1}. ${p.name} | qty ${p.qty} | ${p.x}x${p.y}x${p.z}mm | ${p.vol}cc | ${finishLabel(p)} | ${money(c.net)} ea = ${money(c.lineNet)}${c.qp>0?` (${c.qp}% qty disc)`:""}%0D%0A`;});
   body+=`%0D%0ASubtotal (list): ${money(t.gross)}`;
   if(t.saved>0.005) body+=`%0D%0ADiscounts: -${money(t.saved)}`;
-  body+=t.pickup?`%0D%0APickup at 3DPX: Free`:`%0D%0AShipping · ${SHIP_SPEEDS[t.speed].label}${t.billableLb>0?` (~${t.billableLb.toFixed(1)} lb)`:""}: ${t.shipping>0?money(t.shipping):"quoted separately"}`;
+  body+=t.pickup?`%0D%0APickup at 3DPX: Free`:t.account?`%0D%0AShipping: billed to your carrier account (${v("sCarrier")||"carrier"} ${v("sAcct")||""})`:`%0D%0AShipping · ${SHIP_SPEEDS[t.speed].label}${t.billableLb>0?` (~${t.billableLb.toFixed(1)} lb)`:""}: ${t.shipping>0?money(t.shipping):"quoted separately"}`;
   if(t.matCert>0) body+=`%0D%0AMaterial certification: ${money(t.matCert)}`;
   body+=`%0D%0AEst. lead time: ${orderLeadDays()} business days`;
   body+=`%0D%0AESTIMATED TOTAL: ${money(t.total)} (ex tax & shipping)%0D%0A%0D%0A** Please attach your STL file(s) to this email. **`;
@@ -665,17 +717,21 @@ drop.addEventListener("drop",e=>{if(e.dataTransfer.files.length)handleFiles(e.da
 ["cName","cCo","cEmail","cPhone"].forEach(id=>document.getElementById(id).addEventListener("input",()=>{}));
 document.getElementById("sRegion").addEventListener("change",render);
 document.getElementById("sZip").addEventListener("input",render);
+document.getElementById("sCarrier").addEventListener("change",render);
+document.getElementById("sAcct").addEventListener("input",render);
 document.getElementById("matCert").addEventListener("change",render);
 function toggleShip(){
-  const pickup=shipSpeed()==="pickup";
+  const sp=shipSpeed(), pickup=(sp==="pickup"), account=(sp==="account");
   ["sAddr","sCity","sState","sZip","sRegion"].forEach(id=>{const el=document.getElementById(id);if(el){el.disabled=pickup;el.style.opacity=pickup?0.5:1;}});
   const n=document.getElementById("pickupNote");
   if(n){n.style.display=pickup?"block":"none";
     n.innerHTML=pickup?"📍 <b>Free pickup</b> at 3DPX — 410 N. Milwaukee, Chicago, IL 60654. We'll email you when your order is ready to collect.":"";}
+  const a=document.getElementById("acctFields"); if(a) a.style.display=account?"block":"none";
   render();
 }
 document.getElementById("sSpeed").addEventListener("change",toggleShip);
 document.getElementById("bulkQtyApply").onclick=()=>{const q=Math.max(1,parseInt(document.getElementById("bulkQty").value)||1);parts.forEach(p=>p.qty=q);render();};
+document.getElementById("bulkColorApply").onclick=()=>{const c=document.getElementById("bulkColor").value;parts.forEach(p=>{p.color=c;p.dye=(c!=="natural");});render();};
 document.querySelectorAll("[data-bulk]").forEach(b=>b.onclick=()=>{const[k,v]=b.dataset.bulk.split("-");parts.forEach(p=>p[k]=(v==="on"));render();});
 
 /* ---- Online payment (Stripe Checkout) ---- */
@@ -698,11 +754,13 @@ async function startPayment(){
     const r=await fetch(CHECKOUT_URL,{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({
         orderNo,
-        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,dye:p.dye,vs:p.vs})),
+        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,dye:p.dye,vs:p.vs,color:p.color})),
         name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone"),
         region:(document.getElementById("sRegion")||{}).value||"us",
         zip:v("sZip"),
         shipSpeed:shipSpeed(),
+        carrier:(shipSpeed()==="account")?v("sCarrier"):"",
+        shipAccount:(shipSpeed()==="account")?v("sAcct"):"",
         shipAddress:(shipSpeed()==="pickup")?"Pickup at 3DPX (Chicago, IL)":[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "),
         matCert:document.getElementById("matCert").checked,
         returnUrl:document.referrer||location.href})});

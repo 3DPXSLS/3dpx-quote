@@ -63,7 +63,7 @@ export default async (req) => {
     { columnId: COL.volume,      value: parseFloat(m.total_vol) || 0 },
     { columnId: COL.totalParts,  value: parseInt(m.total_parts) || 0 },
     { columnId: COL.dueDate,     value: due },
-    { columnId: COL.color,       objectValue: { objectType: "MULTI_PICKLIST", values: [ m.color || "White" ] }, strict: false },
+    { columnId: COL.color,       objectValue: { objectType: "MULTI_PICKLIST", values: ((m.color || "White").split("|").filter(Boolean)) }, strict: false },
     { columnId: COL.dye,         value: m.dye_any === "yes" },
     { columnId: COL.vapor,       value: m.vapor_any === "yes" },
     { columnId: COL.shipAddr,    value: m.shipping_address || "" },

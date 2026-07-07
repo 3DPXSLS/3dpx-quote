@@ -28,6 +28,7 @@ const SHIP_SPEEDS = {
   ground:    { label:"Ground shipping", base:12.5, perLb:1.15, min:12.5 },
   expedited: { label:"Expedited",       base:26,   perLb:2.60, min:26 },
   overnight: { label:"Overnight",       base:52,   perLb:5.25, min:52 },
+  account:   { label:"Your carrier account", free:true },
   pickup:    { label:"Pickup at 3DPX",  free:true },
 };
 function shipWeightLb(parts) {
@@ -106,10 +107,14 @@ export default async (req) => {
   const totalVol   = Math.round(parts.reduce((s,p)=>s+(p.vol||0)*(Math.max(1,parseInt(p.qty)||1)),0)*100)/100;
   const dyeAny   = parts.some(p=>p.dye);
   const vaporAny = parts.some(p=>p.vs);
-  const summary = parts.map(p => (p.qty + "x " + p.name + " " + p.x + "x" + p.y + "x" + p.z + "mm" + (p.vs?" +vapor":"") + (p.dye?" +dye":""))).join("; ").slice(0, 460);
+  // Color(s) for the Smartsheet MULTI_PICKLIST (valid options: White/Black/Blue/Yellow/Red/Green). "|"-joined.
+  const CLR = { natural:"White", black:"Black", blue:"Blue", green:"Green", red:"Red", yellow:"Yellow" };
+  const colorList = [...new Set(parts.map(p => (p.dye && CLR[p.color]) ? CLR[p.color] : "White"))].join("|");
+  const summary = parts.map(p => (p.qty + "x " + p.name + " " + p.x + "x" + p.y + "x" + p.z + "mm" + (p.vs?" +vapor":"") + (p.dye?(" +"+(p.color||"dye")):""))).join("; ").slice(0, 460);
   const orderNo = (body.orderNo && /^WEB-[0-9]{8}-[0-9]{3,5}$/.test(body.orderNo)) ? body.orderNo
     : ("WEB-" + new Date().toISOString().slice(0,10).replace(/-/g,"") + "-" + Math.floor(1000+Math.random()*9000));
-  const shipMethodLabel = SHIP_SPEEDS[speed].label + (speed==="pickup" ? " (free)" : "");
+  const acctInfo = (speed==="account") ? (" — " + ((body.carrier||"carrier") + " acct " + (body.shipAccount||"(not provided)")).slice(0,80)) : "";
+  const shipMethodLabel = SHIP_SPEEDS[speed].label + (speed==="pickup" ? " (free)" : "") + acctInfo;
   const notes = (summary + " | " + shipMethodLabel + (body.matCert?" | Material cert":"") + " | Paid via Stripe").slice(0, 495);
 
   let ret = (body.returnUrl && /^https?:\/\//.test(body.returnUrl)) ? body.returnUrl : (req.headers.get("origin") || "");
@@ -139,14 +144,18 @@ export default async (req) => {
   f.append("metadata[customer_phone]", (body.phone||"").slice(0,60));
   f.append("metadata[region]", (body.region||"us"));
   f.append("metadata[ship_speed]", speed);
-  f.append("metadata[ship_method]", shipMethodLabel);
+  f.append("metadata[ship_method]", shipMethodLabel.slice(0,200));
+  if (speed === "account") {
+    f.append("metadata[ship_carrier]", (body.carrier||"").slice(0,60));
+    f.append("metadata[ship_account]", (body.shipAccount||"").slice(0,80));
+  }
   f.append("metadata[material_cert]", body.matCert ? "yes" : "no");
   f.append("metadata[total_parts]", String(totalParts));
   f.append("metadata[total_vol]", String(totalVol));
   f.append("metadata[lead_days]", String(leadDaysCalc(parts)));
   f.append("metadata[dye_any]", dyeAny ? "yes" : "no");
   f.append("metadata[vapor_any]", vaporAny ? "yes" : "no");
-  f.append("metadata[color]", "White");
+  f.append("metadata[color]", colorList || "White");
   f.append("metadata[shipping_address]", (body.shipAddress||"").slice(0,480));
   f.append("metadata[notes]", notes);
   if (body.email) f.append("customer_email", body.email);
