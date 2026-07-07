@@ -234,6 +234,7 @@
         <button class="btn ghost" id="poBtn" style="display:none">Submit PO (invoice)</button>
         <button class="btn ghost" id="travBtn" style="display:none" title="Local preview of the production traveler">Preview traveler</button>
         <button class="btn ghost" id="packBtn" style="display:none" title="Local preview of the packing slip">Preview pack slip</button>
+        <button class="btn ghost" id="quoteBtn" style="display:none" title="Local preview of the quote">Preview quote</button>
       </div>
     </div>
   </div>
@@ -854,6 +855,61 @@ async function uploadPackingSlip(orderNo,opts){
       {method:"POST",headers:{"Content-Type":"application/octet-stream"},body:buf});
   }catch(e){}
 }
+/* ---- Quote PDF (with prices) — auto-attached to the order ---- */
+function buildQuotePDF(orderNo,opts){
+  opts=opts||{};
+  const JS=window.jspdf&&window.jspdf.jsPDF; if(!JS||!parts.length) return null;
+  const doc=new JS({unit:"pt",format:"letter"}); if(typeof doc.autoTable!=="function") return null;
+  const NAVY=[27,42,74],ORANGE=[242,106,33],HEAD=[238,242,248],INK=[27,35,48],GREY=[90,102,120];
+  const W=doc.internal.pageSize.getWidth(), M=40, CW=W-2*M;
+  const t=orderTotals(); const orderDate=new Date().toLocaleDateString("en-US");
+  doc.setFont("helvetica","bold");doc.setFontSize(15);doc.setTextColor(NAVY[0],NAVY[1],NAVY[2]);
+  doc.text("3DPX ADDITIVE MANUFACTURING",M,46);
+  doc.setFontSize(20);doc.setTextColor(NAVY[0],NAVY[1],NAVY[2]);doc.text("QUOTE",W-M,48,{align:"right"});
+  doc.setDrawColor(ORANGE[0],ORANGE[1],ORANGE[2]);doc.setLineWidth(2);doc.line(M,56,W-M,56);
+  let y=80;
+  doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(GREY[0],GREY[1],GREY[2]);doc.text("PREPARED FOR",M,y);
+  doc.setFont("helvetica","normal");doc.setTextColor(INK[0],INK[1],INK[2]);doc.setFontSize(10);
+  let py=y+15;[v("cName"),v("cCo"),v("cEmail")].filter(Boolean).forEach(l=>{doc.text(l,M,py);py+=13;});
+  doc.setFontSize(10);doc.setTextColor(INK[0],INK[1],INK[2]);
+  const meta=[["Quote #",orderNo],["Date",orderDate],["Valid","30 days"]]; if(opts.po)meta.push(["PO",opts.po]);
+  let my=y; meta.forEach(m=>{doc.setFont("helvetica","bold");doc.text(m[0],W-M-150,my);doc.setFont("helvetica","normal");doc.text(String(m[1]),W-M,my,{align:"right"});my+=14;});
+  y=Math.max(py,my)+8;
+  const rows=parts.map((p,i)=>{const c=lineCalc(p);const clr=p.dye?COLORS[partColor(p)].label:"White (Natural)";
+    return [String(i+1),p.name,"SLS · Nylon 12 · "+clr+" · "+finishLabel(p),String(p.qty),money(c.net),money(c.lineNet)];});
+  doc.autoTable({startY:y,head:[["#","Item","Description","Qty","Unit","Line"]],body:rows,
+    theme:"grid",styles:{fontSize:9.5,cellPadding:6,textColor:INK,lineColor:[210,216,226]},
+    headStyles:{fillColor:NAVY,textColor:[255,255,255],fontStyle:"bold"},
+    columnStyles:{0:{cellWidth:24,halign:"center"},1:{cellWidth:130},2:{cellWidth:CW-338,halign:"left"},3:{cellWidth:40,halign:"center"},4:{cellWidth:60,halign:"right"},5:{cellWidth:60,halign:"right"}},
+    margin:{left:M,right:M}});
+  const rowsT=[["Subtotal",money(t.gross)]];
+  if(t.saved>0.005)rowsT.push(["Discounts","-"+money(t.saved)]);
+  if(t.topUp>0)rowsT.push(["Order minimum top-up",money(t.topUp)]);
+  const shipVal=t.pickup?"Free (pickup)":(t.account?"Billed to your account":(t.shipping>0?money(t.shipping):"quoted separately"));
+  rowsT.push(["Est. shipping ("+(t.pickup?"pickup":t.account?"your account":SHIP_SPEEDS[t.speed].label)+")",shipVal]);
+  rowsT.push(["Sales tax","calculated at checkout"]);
+  if(t.matCert>0)rowsT.push(["Material certification",money(t.matCert)]);
+  const half=CW*0.52, lx=M+CW-half;
+  doc.autoTable({startY:doc.lastAutoTable.finalY+12,body:rowsT,theme:"plain",styles:{fontSize:10,cellPadding:3,textColor:INK},
+    columnStyles:{0:{cellWidth:half*0.62,halign:"left",textColor:GREY},1:{cellWidth:half*0.38,halign:"right"}},margin:{left:lx,right:M}});
+  const fy=doc.lastAutoTable.finalY+4;
+  doc.setFillColor(NAVY[0],NAVY[1],NAVY[2]);doc.roundedRect(lx,fy,half,26,5,5,"F");
+  doc.setTextColor(255,255,255);doc.setFont("helvetica","bold");doc.setFontSize(11);
+  doc.text("ESTIMATED TOTAL",lx+10,fy+17);doc.text(money(t.total),M+CW-10,fy+17,{align:"right"});
+  let ty=fy+44;doc.setFont("helvetica","normal");doc.setFontSize(8.5);doc.setTextColor(GREY[0],GREY[1],GREY[2]);
+  doc.text("Quote valid 30 days. Estimates for SLS / Nylon 12 (PA12); final pricing confirmed on file review. Shipping is an estimate; sales tax calculated at checkout. Order minimum $40.",M,ty,{maxWidth:CW});
+  const ph=doc.internal.pageSize.getHeight();
+  doc.setFontSize(8);doc.setTextColor(GREY[0],GREY[1],GREY[2]);
+  doc.text("3DPX Additive Manufacturing  ·  (312) 896-3399  ·  sales@3dpx.com  ·  "+orderNo,M,ph-24);
+  return doc;
+}
+async function uploadQuote(orderNo,opts){
+  try{ const doc=buildQuotePDF(orderNo,opts); if(!doc) return;
+    const buf=doc.output("arraybuffer");
+    await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(orderNo)+"&i=quote&name="+encodeURIComponent("quote-"+orderNo+".pdf"),
+      {method:"POST",headers:{"Content-Type":"application/octet-stream"},body:buf});
+  }catch(e){}
+}
 async function startPayment(){
   if(!parts.length) return;
   if(!validEmail()) return;
@@ -869,6 +925,7 @@ async function startPayment(){
   }
   await uploadTraveler(orderNo,{});
   await uploadPackingSlip(orderNo,{});
+  await uploadQuote(orderNo,{});
   btn.textContent="Starting checkout…";
   try{
     const r=await fetch(CHECKOUT_URL,{method:"POST",headers:{"Content-Type":"application/json"},
@@ -914,6 +971,7 @@ async function submitPO(){
   }
   await uploadTraveler(orderNo,{po});
   await uploadPackingSlip(orderNo,{po});
+  await uploadQuote(orderNo,{po});
   btn.textContent="Submitting…";
   try{
     const r=await fetch("/.netlify/functions/submit-po",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -958,6 +1016,11 @@ if(PAYMENTS_ENABLED){
     pk.onclick=()=>{ if(!parts.length){alert("Add a part first, then preview the packing slip.");return;}
       const doc=buildPackingSlipPDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});
       if(doc)doc.save("packing-slip-preview.pdf"); else alert("Generator still loading — try again in a moment."); };}
+  const qb=document.getElementById("quoteBtn");
+  if(qb&&isLocal){qb.style.display="";
+    qb.onclick=()=>{ if(!parts.length){alert("Add a part first, then preview the quote.");return;}
+      const doc=buildQuotePDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});
+      if(doc)doc.save("quote-preview.pdf"); else alert("Generator still loading — try again in a moment."); };}
 })();
 (function(){const q=new URLSearchParams(location.search);const b=document.getElementById("payBanner");
   if(q.get("paid")){b.style.display="block";b.style.background="#e8f7ef";b.style.border="1px solid #a9e0c3";b.style.color="#1e7d52";
