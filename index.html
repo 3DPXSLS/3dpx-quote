@@ -795,7 +795,8 @@ document.getElementById("bulkColorApply").onclick=()=>{const c=document.getEleme
 document.querySelectorAll("[data-bulk]").forEach(b=>b.onclick=()=>{const[k,v]=b.dataset.bulk.split("-");parts.forEach(p=>p[k]=(v==="on"));render();});
 
 /* ---- Online payment (Stripe Checkout) ---- */
-function genOrderNo(){const d=new Date();return "WEB-"+d.getFullYear()+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0")+"-"+Math.floor(1000+Math.random()*9000);}
+let PREVIEW_ORDER_NO=null;
+function genOrderNo(){if(PREVIEW_ORDER_NO)return PREVIEW_ORDER_NO;const d=new Date();PREVIEW_ORDER_NO="WEB-"+d.getFullYear()+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0")+"-"+Math.floor(1000+Math.random()*9000);return PREVIEW_ORDER_NO;}
 /* ---- Production traveler PDF (per part) — auto-attached to the SLS Jobs order ---- */
 function estDueDate(days){const r=new Date();let a=0;while(a<days){r.setDate(r.getDate()+1);const d=r.getDay();if(d!==0&&d!==6)a++;}return r.toLocaleDateString("en-US");}
 function buildTravelerPDF(orderNo,opts){
@@ -1072,17 +1073,17 @@ if(PAYMENTS_ENABLED){
   if(tb&&isLocal){tb.style.display="";
     tb.onclick=()=>{ if(!parts.length){alert("Add a part first, then preview the traveler.");return;}
       const doc=buildTravelerPDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});
-      if(doc)doc.save("traveler-preview.pdf"); else alert("Traveler generator still loading — try again in a moment."); };}
+      if(doc)doc.save("traveler-"+genOrderNo()+".pdf"); else alert("Traveler generator still loading — try again in a moment."); };}
   const pk=document.getElementById("packBtn");
   if(pk&&isLocal){pk.style.display="";
     pk.onclick=()=>{ if(!parts.length){alert("Add a part first, then preview the packing slip.");return;}
       const doc=buildPackingSlipPDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});
-      if(doc)doc.save("packing-slip-preview.pdf"); else alert("Generator still loading — try again in a moment."); };}
+      if(doc)doc.save("packing-slip-"+genOrderNo()+".pdf"); else alert("Generator still loading — try again in a moment."); };}
   const qb=document.getElementById("quoteBtn");
   if(qb&&isLocal){qb.style.display="";
     qb.onclick=()=>{ if(!parts.length){alert("Add a part first, then preview the quote.");return;}
       const doc=buildQuotePDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});
-      if(doc)doc.save("quote-preview.pdf"); else alert("Generator still loading — try again in a moment."); };}
+      if(doc)doc.save("quote-"+genOrderNo()+".pdf"); else alert("Generator still loading — try again in a moment."); };}
 })();
 (function(){const q=new URLSearchParams(location.search);const b=document.getElementById("payBanner");
   if(q.get("paid")){b.style.display="block";b.style.background="#e8f7ef";b.style.border="1px solid #a9e0c3";b.style.color="#1e7d52";
@@ -1162,9 +1163,9 @@ if(INTERNAL){
   const rt=document.getElementById("repTools");if(rt)rt.style.display="";
   const ad=document.getElementById("addlDisc");if(ad)ad.addEventListener("input",()=>{ADDL_DISC=Math.max(0,Math.min(100,parseFloat(ad.value)||0));render();});
   const sb=document.getElementById("saveQuoteBtn");if(sb){sb.style.display="";sb.onclick=saveQuote;}
-  const tb=document.getElementById("travBtn");if(tb){tb.style.display="";tb.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildTravelerPDF(genOrderNo(),{});if(d)d.save("traveler-preview.pdf");};}
-  const pk=document.getElementById("packBtn");if(pk){pk.style.display="";pk.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildPackingSlipPDF(genOrderNo(),{});if(d)d.save("packing-slip-preview.pdf");};}
-  const qbn=document.getElementById("quoteBtn");if(qbn){qbn.style.display="";qbn.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildQuotePDF(genOrderNo(),{});if(d)d.save("quote-preview.pdf");};}
+  const tb=document.getElementById("travBtn");if(tb){tb.style.display="";tb.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildTravelerPDF(genOrderNo(),{});if(d)d.save("traveler-"+genOrderNo()+".pdf");};}
+  const pk=document.getElementById("packBtn");if(pk){pk.style.display="";pk.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildPackingSlipPDF(genOrderNo(),{});if(d)d.save("packing-slip-"+genOrderNo()+".pdf");};}
+  const qbn=document.getElementById("quoteBtn");if(qbn){qbn.style.display="";qbn.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildQuotePDF(genOrderNo(),{});if(d)d.save("quote-"+genOrderNo()+".pdf");};}
 }
 (function(){const q=_URLP.get("quote");if(q&&/^Q-[A-Za-z0-9]{4,12}$/.test(q))loadQuote(q);})();
 
