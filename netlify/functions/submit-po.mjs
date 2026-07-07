@@ -76,7 +76,7 @@ function unitPrice(p) {
   if (p.vs)  u += Math.max(base*FINISH.vsPct/100, FINISH.vsMin);
   return u;
 }
-function orderTotal(parts, region, matCert, speed, zip) {
+function orderTotal(parts, region, matCert, speed, zip, addl) {
   let gross=0, postQty=0;
   for (const p of parts) {
     const q = Math.max(1, parseInt(p.qty)||1);
@@ -84,7 +84,7 @@ function orderTotal(parts, region, matCert, speed, zip) {
     gross += u*q; postQty += u*(1-qd(q)/100)*q;
   }
   const vp = vd(gross);
-  const after = postQty - postQty*vp/100;
+  const after = Math.max(0, (postQty - postQty*vp/100) - Math.max(0, addl||0));
   const topUp = Math.max(0, RULES.orderMin - after);
   const sp = SHIP_SPEEDS[speed] ? speed : "ground";
   let shipping = 0;
@@ -117,7 +117,11 @@ export default async (req) => {
   const sheetId = process.env.SMARTSHEET_SHEET_ID || SLS_JOBS_SHEET;
 
   const speed = SHIP_SPEEDS[body.shipSpeed] ? body.shipSpeed : "ground";
-  const price = orderTotal(parts, body.region, !!body.matCert, speed, body.zip);
+  let addlDisc = Math.max(0, +body.addlDisc || 0);
+  if (body.quoteId && /^Q-[A-Za-z0-9]{4,12}$/.test(body.quoteId)) {
+    try { const { getStore } = await import("@netlify/blobs"); const q = await getStore("orders").get("Q-QUOTES/" + body.quoteId + ".json", { type: "json" }); if (q && typeof q.addlDisc === "number") addlDisc = Math.max(0, q.addlDisc); } catch (e) {}
+  }
+  const price = orderTotal(parts, body.region, !!body.matCert, speed, body.zip, addlDisc);
   const totalParts = parts.reduce((s,p)=>s+(Math.max(1,parseInt(p.qty)||1)),0);
   const totalVol   = Math.round(parts.reduce((s,p)=>s+(p.vol||0)*(Math.max(1,parseInt(p.qty)||1)),0)*100)/100;
   const dyeAny   = parts.some(p=>p.dye);

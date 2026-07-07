@@ -27,11 +27,13 @@ export default async (req) => {
       qty: Math.max(1, parseInt(p.qty) || 1),
       color: String(p.color || "natural"), dye: !!p.dye, vs: !!p.vs,
       drawingName: p.drawingName ? String(p.drawingName).slice(0,120) : "",
+      thumb: (p.thumb && String(p.thumb).startsWith("data:image")) ? String(p.thumb).slice(0, 400000) : "",
     })),
     region: String(body.region || "us"),
     zip: String(body.zip || "").slice(0,12),
     shipSpeed: String(body.shipSpeed || "ground"),
     matCert: !!body.matCert,
+    addlDisc: Math.max(0, +body.addlDisc || 0),
     note: String(body.note || "").slice(0, 600),
     cust: {
       name: String(body.name || "").slice(0,200),

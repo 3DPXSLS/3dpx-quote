@@ -213,6 +213,14 @@
         <div><label>Attach PO (PDF, optional)</label><input id="poFile" type="file" accept="application/pdf,.pdf"></div>
       </div>
     </div>
+    <div id="repTools" style="display:none;margin-top:16px;border:1px dashed #b9cdf0;border-radius:10px;padding:14px 16px;background:#f4f8ff">
+      <div style="font-weight:700;color:#1b2a4a;margin-bottom:8px">Rep tools <span style="font-weight:500;color:#8a95a8;font-size:12px">· internal only</span></div>
+      <div class="contact" style="margin:0">
+        <div><label>Additional discount ($ off order)</label><input id="addlDisc" type="number" min="0" step="1" placeholder="0"></div>
+        <div><label>Material price check</label><div id="perCcReadout" style="padding:9px 0;font-weight:700;color:#1b2a4a">$0.00 / cm³</div></div>
+      </div>
+      <div style="font-size:11px;color:#8a95a8;margin-top:6px">$/cm³ = discounted parts value ÷ total printed volume. The additional discount reduces the customer's total and the amount charged. Visible only in the internal tool.</div>
+    </div>
   </div>
 </div>
 
@@ -404,6 +412,7 @@ function unitPrice(p){
   if(p.vs)  u+=Math.max(base*FINISH.vsPct/100, FINISH.vsMin);
   return u;
 }
+let ADDL_DISC=0;  // rep-set additional discount ($ off), internal only
 function orderTotals(){
   let gross=0, postQty=0;
   parts.forEach(p=>{const c=lineCalc(p);gross+=c.lineList;postQty+=c.lineNet;});
@@ -414,6 +423,7 @@ function orderTotals(){
   else { const valAlt=gross*vPct/100;
     if(valAlt>=qtyDisc){ afterDisc=gross-valAlt; qtyDiscShown=0; valDiscShown=valAlt; valPctShown=vPct; }
     else { afterDisc=postQty; } }
+  const addlApplied=parts.length?Math.min(afterDisc,Math.max(0,ADDL_DISC||0)):0; afterDisc=afterDisc-addlApplied;
   const topUp=parts.length?Math.max(0,RULES.orderMin-afterDisc):0;
   const region=(typeof document!=="undefined"&&document.getElementById("sRegion"))?document.getElementById("sRegion").value:"us";
   const zip=(typeof document!=="undefined"&&document.getElementById("sZip"))?document.getElementById("sZip").value:"";
@@ -421,8 +431,10 @@ function orderTotals(){
   const est=estimateShipping(parts, region, speed, zip);
   const shipping=est.shipping, billableLb=est.billableLb, zone=est.zone;
   const matCert=(parts.length&&typeof document!=="undefined"&&document.getElementById("matCert")&&document.getElementById("matCert").checked)?RULES.matCertFee:0;
-  return {gross, qtyDisc:qtyDiscShown, valPct:valPctShown, valDisc:valDiscShown, afterDisc, topUp,
-          shipping, billableLb, zone, matCert, speed, pickup, account, total:afterDisc+topUp+shipping+matCert, saved:gross-afterDisc};
+  const totalVol=parts.reduce((s,p)=>s+(p.vol||0)*(p.qty||0),0);
+  const perCc=totalVol>0?afterDisc/totalVol:0;
+  return {gross, qtyDisc:qtyDiscShown, valPct:valPctShown, valDisc:valDiscShown, addlDisc:addlApplied, afterDisc, topUp,
+          shipping, billableLb, zone, matCert, speed, pickup, account, perCc, totalVol, total:afterDisc+topUp+shipping+matCert, saved:gross-afterDisc};
 }
 function regionLabel(){const r=(document.getElementById("sRegion")||{}).value;return r==="intl"?"International":r==="camx"?"Canada / Mexico":"United States";}
 /* ============================ <<< END PRICING ENGINE >>> ============================ */
@@ -637,7 +649,9 @@ function render(){
   let lines="";
   lines+=`<div class="oline"><span>Parts</span><b>${parts.length} part${parts.length===1?"":"s"} · ${pcs} pc${pcs===1?"":"s"}</b></div>`;
   lines+=`<div class="oline"><span>Subtotal</span><b>${money(t.gross)}</b></div>`;
-  if(t.saved>0.005) lines+=`<div class="oline save"><span>Discounts (save ${Math.round(t.saved/t.gross*100)}%)</span><b>−${money(t.saved)}</b></div>`;
+  const stdDisc=t.saved-(t.addlDisc||0);
+  if(stdDisc>0.005) lines+=`<div class="oline save"><span>Discounts (save ${Math.round(stdDisc/t.gross*100)}%)</span><b>−${money(stdDisc)}</b></div>`;
+  if(t.addlDisc>0.005) lines+=`<div class="oline save"><span>Additional discount</span><b>−${money(t.addlDisc)}</b></div>`;
   if(t.topUp>0) lines+=`<div class="oline"><span>Order minimum top-up</span><b>${money(t.topUp)}</b></div>`;
   if(t.pickup) lines+=`<div class="oline"><span>Pickup at 3DPX (Chicago, IL)</span><b style="color:#1e9e6a">Free</b></div>`;
   else if(t.account) lines+=`<div class="oline"><span>Shipping · your carrier account${(document.getElementById("sCarrier")||{}).value?` (${(document.getElementById("sCarrier")||{}).value})`:""}</span><b style="color:#1e9e6a">Billed to you</b></div>`;
@@ -647,6 +661,7 @@ function render(){
   if(t.matCert>0) lines+=`<div class="oline"><span>Material certification</span><b>${money(t.matCert)}</b></div>`;
   lines+=`<div class="oline tot"><span>Estimated total</span><b>${money(t.total)}</b></div>`;
   document.getElementById("orderLines").innerHTML=lines;
+  const pcEl=document.getElementById("perCcReadout"); if(pcEl) pcEl.textContent="$"+t.perCc.toFixed(2)+" / cm³"+(t.addlDisc>0.005?("  ·  addl −"+money(t.addlDisc)):"")+"  ·  vol "+Math.round(t.totalVol)+" cm³";
   const ov=nextValueTier(t.gross),on=document.getElementById("orderNudge");
   if(ov&&parts.length){on.style.display="block";
     on.innerHTML=`🎯 Add <b>${money(ov.v-t.gross)}</b> more in parts to unlock <b>${ov.d}% off your entire order</b>.`;}
@@ -977,6 +992,7 @@ async function startPayment(){
         shipAccount:(shipSpeed()==="account")?v("sAcct"):"",
         shipAddress:(shipSpeed()==="pickup")?"Pickup at 3DPX (Chicago, IL)":[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "),
         matCert:document.getElementById("matCert").checked,
+        quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,
         returnUrl:document.referrer||location.href})});
     const data=await r.json().catch(()=>({}));
     if(data.url){ try{window.top.location.href=data.url;}catch(e){window.location.href=data.url;} return; }
@@ -1026,7 +1042,7 @@ async function submitPO(){
         zip:v("sZip"), shipSpeed:shipSpeed(),
         carrier:(shipSpeed()==="account")?v("sCarrier"):"", shipAccount:(shipSpeed()==="account")?v("sAcct"):"",
         shipAddress:(shipSpeed()==="pickup")?"Pickup at 3DPX (Chicago, IL)":[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "),
-        matCert:document.getElementById("matCert").checked})});
+        matCert:document.getElementById("matCert").checked,quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC})});
     const data=await r.json().catch(()=>({}));
     if(data.ok){
       const b=document.getElementById("payBanner");
@@ -1089,9 +1105,9 @@ async function saveQuote(){
   try{
     const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({token:INTERNAL_TOKEN,id,
-        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,drawingName:p.drawingName||""})),
+        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,drawingName:p.drawingName||"",thumb:p.thumb||""})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
-        matCert:document.getElementById("matCert").checked,name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
+        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
     const data=await r.json().catch(()=>({}));
     if(data.ok){
       const link=location.origin+"/?quote="+data.id;
@@ -1111,7 +1127,7 @@ async function loadQuote(id){
     const r=await fetch("/.netlify/functions/get-quote?id="+encodeURIComponent(id));
     const data=await r.json().catch(()=>({}));
     if(!data.ok||!data.quote)return;
-    const q=data.quote;LOADED_QUOTE_ID=q.id;
+    const q=data.quote;LOADED_QUOTE_ID=q.id;ADDL_DISC=Math.max(0,+q.addlDisc||0);
     const set=(k,val)=>{const el=document.getElementById(k);if(el&&val!=null&&val!=="")el.value=val;};
     if(q.cust){set("cName",q.cust.name);set("cCo",q.cust.company);set("cEmail",q.cust.email);set("cPhone",q.cust.phone);}
     set("sRegion",q.region);set("sZip",q.zip);set("sSpeed",q.shipSpeed);
@@ -1125,6 +1141,8 @@ async function loadQuote(id){
   }catch(e){}
 }
 if(INTERNAL){
+  const rt=document.getElementById("repTools");if(rt)rt.style.display="";
+  const ad=document.getElementById("addlDisc");if(ad)ad.addEventListener("input",()=>{ADDL_DISC=Math.max(0,parseFloat(ad.value)||0);render();});
   const sb=document.getElementById("saveQuoteBtn");if(sb){sb.style.display="";sb.onclick=saveQuote;}
   const tb=document.getElementById("travBtn");if(tb){tb.style.display="";tb.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildTravelerPDF(genOrderNo(),{});if(d)d.save("traveler-preview.pdf");};}
   const pk=document.getElementById("packBtn");if(pk){pk.style.display="";pk.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildPackingSlipPDF(genOrderNo(),{});if(d)d.save("packing-slip-preview.pdf");};}
