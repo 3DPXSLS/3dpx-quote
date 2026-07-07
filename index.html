@@ -1114,10 +1114,14 @@ async function saveQuote(){
     const data=await r.json().catch(()=>({}));
     if(data.ok){
       const link=location.origin+"/?quote="+data.id;
+      const shortId=data.id.replace(/^Q-/,""); const label="3DPX Quote "+shortId;
       const box=document.getElementById("quoteLinkBox");
       if(box){box.style.display="block";
-        box.innerHTML='<b style="color:#1b2a4a">Customer quote link ready ('+data.id+')</b><div style="font-size:12px;color:#5a6678;margin:2px 0 8px">Send this link so the customer can review and order (pay by card or submit a PO). The quote PDF was also downloaded to attach in your reply.</div><input id="quoteLinkInput" readonly value="'+link+'" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #cbd5e6;border-radius:6px;font-size:12px"><div style="margin-top:8px"><button class="btn ghost" id="copyLinkBtn" type="button">Copy link</button></div>';
-        const cb=document.getElementById("copyLinkBtn");if(cb)cb.onclick=()=>{const inp=document.getElementById("quoteLinkInput");inp.select();try{navigator.clipboard.writeText(link);}catch(e){}cb.textContent="Copied ✓";};
+        box.innerHTML='<b style="color:#1b2a4a">Customer quote link ready ('+data.id+')</b><div style="font-size:12px;color:#5a6678;margin:2px 0 8px">Click <b>Copy quote link</b> and paste into your reply email &mdash; it appears as a tidy &ldquo;'+label+'&rdquo; link. The quote PDF was also downloaded to attach.</div><input id="quoteLinkInput" readonly value="'+link+'" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #cbd5e6;border-radius:6px;font-size:12px"><div style="margin-top:8px"><button class="btn ghost" id="copyLinkBtn" type="button">Copy quote link</button></div>';
+        const cb=document.getElementById("copyLinkBtn");
+        if(cb)cb.onclick=async()=>{ const html='<a href="'+link+'">'+label+'</a>';
+          try{ await navigator.clipboard.write([new ClipboardItem({"text/html":new Blob([html],{type:"text/html"}),"text/plain":new Blob([link],{type:"text/plain"})})]); cb.textContent="Copied ✓ — pastes as “"+label+"”"; }
+          catch(e){ try{await navigator.clipboard.writeText(link);}catch(e2){} cb.textContent="Copied ✓"; } };
         box.scrollIntoView({behavior:"smooth",block:"center"});
       }
       try{const doc=buildQuotePDF(data.id,{});if(doc)doc.save("quote-"+data.id+".pdf");}catch(e){}
@@ -1141,6 +1145,12 @@ async function loadQuote(id){
     const b=document.getElementById("payBanner");
     if(b){b.style.display="block";b.style.background="#eef4ff";b.style.border="1px solid #b9cdf0";b.style.color="#1b2a4a";
       b.innerHTML="📋 <b>Your 3DPX quote is ready.</b> Review the parts below, then choose how to order — pay securely by card or submit a PO. Pricing as quoted; we confirm on final review.";}
+    if(window.THREE){ for(let i=0;i<parts.length;i++){const p=parts[i];
+      try{ const rr=await fetch("/.netlify/functions/get-quote-file?id="+encodeURIComponent(q.id)+"&i="+i);
+        if(!rr.ok) continue; const buf=await rr.arrayBuffer(); const pr=parseSTL(buf);
+        if(pr&&pr.count){ p.geo=pr.pos; p.area=pr.areaMM2; if(!p.thumb) p.thumb=renderThumb(pr.pos); createViewer(p); }
+      }catch(e2){}
+    } render(); }
   }catch(e){}
 }
 if(INTERNAL){
