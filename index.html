@@ -205,6 +205,14 @@
     </div>
     <h2 style="margin-top:22px">4 · Order options</h2>
     <label class="addon"><input type="checkbox" id="matCert"> <span><b>Material certification</b> — certificate of conformance &amp; material data sheet</span> <span class="addprice">+$100</span></label>
+    <div style="margin-top:16px;border:1px solid var(--line);border-radius:10px;padding:14px 16px;background:#fbfcfe">
+      <div style="font-weight:700;color:#1b2a4a;margin-bottom:2px">🧾 Purchase order (optional)</div>
+      <div style="font-size:12.5px;color:#42506b;margin-bottom:10px">Ordering on terms? Enter your PO and click <b>Submit PO</b> below — we'll review and invoice you, no card charged.</div>
+      <div class="contact" style="margin:0">
+        <div><label>PO number</label><input id="cPO" placeholder="e.g. PO-10432"></div>
+        <div><label>Attach PO (PDF, optional)</label><input id="poFile" type="file" accept="application/pdf,.pdf"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -223,6 +231,7 @@
         <button class="btn ghost" id="emailBtn">Email quote</button>
         <button class="btn ghost" id="dlBtn">Download PDF</button>
         <button class="btn orange" id="payBtn" style="display:none">Order &amp; pay</button>
+        <button class="btn ghost" id="poBtn" style="display:none">Submit PO (invoice)</button>
       </div>
     </div>
   </div>
@@ -230,6 +239,7 @@
     <b>Ways to place your order:</b>
     <div style="margin-top:8px;display:grid;gap:7px">
       <div id="orderWayPay"><b>💳 Order &amp; pay online</b> — click <b>Order &amp; pay</b> above to check out securely by card. Your STL files upload automatically and your order goes straight into production. <i>Fastest option.</i></div>
+      <div><b>🧾 Order by PO (invoice me)</b> — enter your PO under Order options and click <b>Submit PO</b>. We'll review and send an invoice on terms — no card required.</div>
       <div><b>✉️ Email your quote</b> — click <b>Email quote</b> or <b>Download PDF</b>, then send it to <a href="mailto:sales@3dpx.com">sales@3dpx.com</a> with your STL file attached. We'll reply to confirm, arrange payment, and set your lead time.</div>
       <div><b>📞 Call or email us</b> — reach our team at <a href="tel:+13128963399">(312) 896-3399</a> or <a href="mailto:sales@3dpx.com">sales@3dpx.com</a> for purchase orders, volume pricing, material certs, or any questions.</div>
       <div style="color:#5a6678"><b>🏭 Local pickup</b> — choosing <b>Pickup at 3DPX</b> under Delivery ships free; we'll email you when your order is ready to collect in Chicago.</div>
@@ -772,11 +782,58 @@ async function startPayment(){
   }
   btn.textContent=orig; btn.disabled=false;
 }
+/* ---- Order by PO (invoice, no card) ---- */
+async function submitPO(){
+  if(!parts.length) return;
+  if(!validEmail()) return;
+  const po=(v("cPO")||"").trim();
+  if(!po){alert("Please enter your PO number to submit a PO order.");document.getElementById("cPO").focus();return;}
+  const btn=document.getElementById("poBtn"), orig=btn.textContent; btn.disabled=true;
+  const orderNo=genOrderNo();
+  btn.textContent="Uploading files…";
+  for(let i=0;i<parts.length;i++){const p=parts[i];
+    if(!p.fileBuf || p.fileBuf.byteLength>6*1024*1024) continue;
+    try{ await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(orderNo)+"&i="+i+"&name="+encodeURIComponent(p.fileName||(p.name+".stl")),
+      {method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.fileBuf}); }catch(e){}
+  }
+  const pf=document.getElementById("poFile");
+  if(pf&&pf.files&&pf.files[0]&&pf.files[0].size<=6*1024*1024){
+    try{ const buf=await pf.files[0].arrayBuffer();
+      await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(orderNo)+"&i=po&name="+encodeURIComponent(pf.files[0].name||("PO-"+po+".pdf")),
+        {method:"POST",headers:{"Content-Type":"application/octet-stream"},body:buf}); }catch(e){}
+  }
+  btn.textContent="Submitting…";
+  try{
+    const r=await fetch("/.netlify/functions/submit-po",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        orderNo, po,
+        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,dye:p.dye,vs:p.vs,color:p.color})),
+        name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone"),
+        region:(document.getElementById("sRegion")||{}).value||"us",
+        zip:v("sZip"), shipSpeed:shipSpeed(),
+        carrier:(shipSpeed()==="account")?v("sCarrier"):"", shipAccount:(shipSpeed()==="account")?v("sAcct"):"",
+        shipAddress:(shipSpeed()==="pickup")?"Pickup at 3DPX (Chicago, IL)":[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "),
+        matCert:document.getElementById("matCert").checked})});
+    const data=await r.json().catch(()=>({}));
+    if(data.ok){
+      const b=document.getElementById("payBanner");
+      b.style.display="block";b.style.background="#e8f7ef";b.style.border="1px solid #a9e0c3";b.style.color="#1e7d52";
+      b.innerHTML="✓ <b>PO received — thank you!</b> Your order (PO "+esc(po)+") is in our queue for review. We'll confirm and email an invoice to "+esc(v("cEmail"))+". No card was charged.";
+      try{window.scrollTo({top:0,behavior:"smooth"});}catch(e){}
+      btn.textContent="PO submitted ✓"; return;
+    }
+    alert(data.error||"Couldn't submit your PO. Please download your quote and email it with your PO to sales@3dpx.com.");
+  }catch(e){
+    alert("PO ordering isn't available right now. Please download your quote and email it with your PO to sales@3dpx.com.");
+  }
+  btn.textContent=orig; btn.disabled=false;
+}
 if(PAYMENTS_ENABLED){
   const pb=document.getElementById("payBtn"); pb.style.display=""; pb.onclick=startPayment;
 } else {
   const w=document.getElementById("orderWayPay"); if(w) w.style.display="none";
 }
+(function(){const pob=document.getElementById("poBtn"); if(pob){pob.style.display=""; pob.onclick=submitPO;}})();
 (function(){const q=new URLSearchParams(location.search);const b=document.getElementById("payBanner");
   if(q.get("paid")){b.style.display="block";b.style.background="#e8f7ef";b.style.border="1px solid #a9e0c3";b.style.color="#1e7d52";
     b.innerHTML="✓ <b>Payment received — thank you!</b> We'll email your order confirmation shortly. Please make sure we have your STL file at sales@3dpx.com.";}
