@@ -235,9 +235,11 @@
         <button class="btn ghost" id="travBtn" style="display:none" title="Local preview of the production traveler">Preview traveler</button>
         <button class="btn ghost" id="packBtn" style="display:none" title="Local preview of the packing slip">Preview pack slip</button>
         <button class="btn ghost" id="quoteBtn" style="display:none" title="Local preview of the quote">Preview quote</button>
+        <button class="btn orange" id="saveQuoteBtn" style="display:none" title="Save this quote and get a customer link">Save &amp; send to customer</button>
       </div>
     </div>
   </div>
+  <div id="quoteLinkBox" style="display:none;margin-top:14px;background:#f5f8fc;border:1px solid #d5e0f0;border-radius:10px;padding:14px 16px;font-size:13px;color:#1b2330"></div>
   <div class="ordernote" id="orderNote">
     <div style="font-weight:700;color:#1b2a4a;font-size:15px;letter-spacing:.2px">How to place your order</div>
     <div style="margin-top:12px;border-top:1px solid #e2e8f2">
@@ -938,12 +940,14 @@ async function uploadQuote(orderNo,opts){
       {method:"POST",headers:{"Content-Type":"application/octet-stream"},body:buf});
   }catch(e){}
 }
+let LOADED_QUOTE_ID=null;
 async function startPayment(){
   if(!parts.length) return;
   if(!validEmail()) return;
   const btn=document.getElementById("payBtn"), orig=btn.textContent;
   btn.disabled=true;
   const orderNo=genOrderNo();
+  if(LOADED_QUOTE_ID){try{await fetch("/.netlify/functions/promote-quote",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({orderNo,id:LOADED_QUOTE_ID})});}catch(e){}}
   // upload STL file(s) first (best-effort; up to ~6MB each, else it falls back to email)
   btn.textContent="Uploading files…";
   for(let i=0;i<parts.length;i++){const p=parts[i];
@@ -990,6 +994,7 @@ async function submitPO(){
   if(!po){alert("Please enter your PO number to submit a PO order.");document.getElementById("cPO").focus();return;}
   const btn=document.getElementById("poBtn"), orig=btn.textContent; btn.disabled=true;
   const orderNo=genOrderNo();
+  if(LOADED_QUOTE_ID){try{await fetch("/.netlify/functions/promote-quote",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({orderNo,id:LOADED_QUOTE_ID})});}catch(e){}}
   btn.textContent="Uploading files…";
   for(let i=0;i<parts.length;i++){const p=parts[i];
     if(p.fileBuf && p.fileBuf.byteLength<=6*1024*1024){
@@ -1068,6 +1073,64 @@ if(PAYMENTS_ENABLED){
 })();
 toggleShip();
 render();
+
+/* ---- Internal rep mode + shareable customer quote link ---- */
+const _URLP=new URLSearchParams(location.search);
+const INTERNAL=_URLP.has("internal");
+const INTERNAL_TOKEN=_URLP.get("internal")||"1";
+async function saveQuote(){
+  if(!parts.length){alert("Add at least one part first.");return;}
+  const btn=document.getElementById("saveQuoteBtn"),orig=btn.textContent;btn.disabled=true;btn.textContent="Saving…";
+  const id="Q-"+Math.random().toString(36).slice(2,8).toUpperCase();
+  for(let i=0;i<parts.length;i++){const p=parts[i];
+    if(p.fileBuf&&p.fileBuf.byteLength<=6*1024*1024){try{await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(id)+"&i="+i+"&name="+encodeURIComponent(p.fileName||(p.name+".stl")),{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.fileBuf});}catch(e){}}
+    if(p.drawingBuf&&p.drawingBuf.byteLength<=6*1024*1024){try{await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(id)+"&i=draw"+i+"&name="+encodeURIComponent("drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf"))),{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.drawingBuf});}catch(e){}}
+  }
+  try{
+    const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({token:INTERNAL_TOKEN,id,
+        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,drawingName:p.drawingName||""})),
+        region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
+        matCert:document.getElementById("matCert").checked,name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
+    const data=await r.json().catch(()=>({}));
+    if(data.ok){
+      const link=location.origin+"/?quote="+data.id;
+      const box=document.getElementById("quoteLinkBox");
+      if(box){box.style.display="block";
+        box.innerHTML='<b style="color:#1b2a4a">Customer quote link ready ('+data.id+')</b><div style="font-size:12px;color:#5a6678;margin:2px 0 8px">Send this link so the customer can review and order (pay by card or submit a PO). The quote PDF was also downloaded to attach in your reply.</div><input id="quoteLinkInput" readonly value="'+link+'" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #cbd5e6;border-radius:6px;font-size:12px"><div style="margin-top:8px"><button class="btn ghost" id="copyLinkBtn" type="button">Copy link</button></div>';
+        const cb=document.getElementById("copyLinkBtn");if(cb)cb.onclick=()=>{const inp=document.getElementById("quoteLinkInput");inp.select();try{navigator.clipboard.writeText(link);}catch(e){}cb.textContent="Copied ✓";};
+        box.scrollIntoView({behavior:"smooth",block:"center"});
+      }
+      try{const doc=buildQuotePDF(data.id,{});if(doc)doc.save("quote-"+data.id+".pdf");}catch(e){}
+    } else { alert(data.error||"Could not save the quote."); }
+  }catch(e){ alert("Could not save the quote right now."); }
+  btn.textContent=orig;btn.disabled=false;
+}
+async function loadQuote(id){
+  try{
+    const r=await fetch("/.netlify/functions/get-quote?id="+encodeURIComponent(id));
+    const data=await r.json().catch(()=>({}));
+    if(!data.ok||!data.quote)return;
+    const q=data.quote;LOADED_QUOTE_ID=q.id;
+    const set=(k,val)=>{const el=document.getElementById(k);if(el&&val!=null&&val!=="")el.value=val;};
+    if(q.cust){set("cName",q.cust.name);set("cCo",q.cust.company);set("cEmail",q.cust.email);set("cPhone",q.cust.phone);}
+    set("sRegion",q.region);set("sZip",q.zip);set("sSpeed",q.shipSpeed);
+    if(document.getElementById("matCert"))document.getElementById("matCert").checked=!!q.matCert;
+    parts.length=0;
+    (q.parts||[]).forEach(p=>{parts.push({id:++pid,name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color||"natural",dye:!!p.dye,vs:!!p.vs,drawingName:p.drawingName||"",geo:null,area:0,thumb:null,fileBuf:null});});
+    toggleShip();render();
+    const b=document.getElementById("payBanner");
+    if(b){b.style.display="block";b.style.background="#eef4ff";b.style.border="1px solid #b9cdf0";b.style.color="#1b2a4a";
+      b.innerHTML="📋 <b>Your 3DPX quote is ready.</b> Review the parts below, then choose how to order — pay securely by card or submit a PO. Pricing as quoted; we confirm on final review.";}
+  }catch(e){}
+}
+if(INTERNAL){
+  const sb=document.getElementById("saveQuoteBtn");if(sb){sb.style.display="";sb.onclick=saveQuote;}
+  const tb=document.getElementById("travBtn");if(tb){tb.style.display="";tb.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildTravelerPDF(genOrderNo(),{});if(d)d.save("traveler-preview.pdf");};}
+  const pk=document.getElementById("packBtn");if(pk){pk.style.display="";pk.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildPackingSlipPDF(genOrderNo(),{});if(d)d.save("packing-slip-preview.pdf");};}
+  const qbn=document.getElementById("quoteBtn");if(qbn){qbn.style.display="";qbn.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildQuotePDF(genOrderNo(),{});if(d)d.save("quote-preview.pdf");};}
+}
+(function(){const q=_URLP.get("quote");if(q&&/^Q-[A-Za-z0-9]{4,12}$/.test(q))loadQuote(q);})();
 
 /* ---- auto-resize: tell the parent page our height when embedded in an iframe ---- */
 function postHeight(){try{if(window.parent!==window)window.parent.postMessage({type:"3dpxQuoteHeight",height:document.body.scrollHeight},"*");}catch(e){}}
