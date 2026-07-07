@@ -492,10 +492,11 @@ function initThumb(){
   _scene3.add(k,f,new THREE.AmbientLight(0xffffff,0.55));
   _mat3=new THREE.MeshPhongMaterial({color:0x33415c,shininess:18});
 }
-function renderThumb(pos){
+function renderThumb(pos,p){
   if(!window.THREE)return null;
   try{
     initThumb();
+    if(p){applyFinish(_mat3,p);}else{_mat3.color.set(0x33415c);_mat3.shininess=18;if(_mat3.specular)_mat3.specular.set(0x111111);_mat3.needsUpdate=true;}
     if(_mesh3){_scene3.remove(_mesh3);_mesh3.geometry.dispose();}
     const g=new THREE.BufferGeometry();
     g.setAttribute("position",new THREE.BufferAttribute(pos,3));
@@ -822,7 +823,8 @@ function buildTravelerPDF(orderNo,opts){
     doc.text(orderNo,M,y);
     if(opts.po){doc.setFontSize(11);doc.setTextColor(ORANGE[0],ORANGE[1],ORANGE[2]);doc.text("PO "+opts.po,W-M,y,{align:"right"});}
     y+=14;const imgW=132,imgH=132,ix=(W-imgW)/2;
-    if(p.thumb){try{doc.addImage(p.thumb,"PNG",ix,y,imgW,imgH);}catch(e){}}
+    const timg=(window.THREE&&p.geo)?(renderThumb(p.geo,p)||p.thumb):p.thumb;
+    if(timg){try{doc.addImage(timg,"PNG",ix,y,imgW,imgH);}catch(e){}}
     doc.setDrawColor(220,224,232);doc.setLineWidth(1);doc.roundedRect(ix,y,imgW,imgH,6,6);
     y+=imgH+18;
     doc.setFont("helvetica","normal");doc.setFontSize(11);doc.setTextColor(NAVY[0],NAVY[1],NAVY[2]);
@@ -884,7 +886,7 @@ function buildPackingSlipPDF(orderNo,opts){
   doc.autoTable(Object.assign({},base,{startY:y,head:[["Order #","Order Date","PO","Delivery"]],body:[[orderNo,orderDate,opts.po||"—",deliv]]}));
   const totalPieces=parts.reduce((s,p)=>s+(parseInt(p.qty)||1),0);
   const rows=parts.map((p,i)=>{const clr=p.dye?COLORS[partColor(p)].label:"White (Natural)";return [String(i+1),p.name,"SLS · Nylon 12 (PA12) · "+clr+" · "+finishLabel(p),String(p.qty)];});
-  doc.autoTable({startY:doc.lastAutoTable.finalY+14,head:[["#","Item","Description","Qty"]],body:rows,foot:[["","","Total pieces",String(totalPieces)]],theme:"grid",styles:{fontSize:9.5,cellPadding:6,textColor:INK,lineColor:[210,216,226]},headStyles:{fillColor:NAVY,textColor:[255,255,255],fontStyle:"bold"},footStyles:{fillColor:HEAD,textColor:NAVY,fontStyle:"bold"},columnStyles:{0:{cellWidth:28,halign:"center"},1:{cellWidth:160},2:{cellWidth:CW-238,halign:"left"},3:{cellWidth:50,halign:"center"}},margin:{left:M,right:M}});
+  doc.autoTable({startY:doc.lastAutoTable.finalY+14,head:[["#","Item","Description","Qty"]],body:rows,foot:[["","",{content:"Total pieces",styles:{halign:"right"}},{content:String(totalPieces),styles:{halign:"center"}}]],theme:"grid",styles:{fontSize:9.5,cellPadding:6,textColor:INK,lineColor:[210,216,226]},headStyles:{fillColor:NAVY,textColor:[255,255,255],fontStyle:"bold"},footStyles:{fillColor:HEAD,textColor:NAVY,fontStyle:"bold"},columnStyles:{0:{cellWidth:28,halign:"center"},1:{cellWidth:160},2:{cellWidth:CW-238,halign:"left"},3:{cellWidth:50,halign:"center"}},margin:{left:M,right:M}});
   let ny=doc.lastAutoTable.finalY+18;
   doc.setFontSize(10);doc.setTextColor(INK[0],INK[1],INK[2]);doc.setFont("helvetica","bold");
   doc.text("Thank you for your order!",M,ny);
