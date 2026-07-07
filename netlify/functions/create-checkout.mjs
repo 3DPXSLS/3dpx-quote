@@ -70,7 +70,7 @@ function orderTotal(parts, region, matCert, speed, zip, addl) {
     gross += u*q; postQty += u*(1-qd(q)/100)*q;
   }
   const vp = vd(gross);
-  const after = Math.max(0, (postQty - postQty*vp/100) - Math.max(0, addl||0));
+  const after = (postQty - postQty*vp/100) * (1 - Math.max(0, Math.min(100, addl||0))/100);
   const topUp = Math.max(0, RULES.orderMin - after);
   const sp = SHIP_SPEEDS[speed] ? speed : "ground";
   let shipping = 0;
