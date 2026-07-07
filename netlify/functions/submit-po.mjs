@@ -129,16 +129,19 @@ export default async (req) => {
   const summary = parts.map(p => (p.qty + "x " + p.name + " " + p.x + "x" + p.y + "x" + p.z + "mm" + (p.vs?" +vapor":"") + (p.dye?(" +"+(p.color||"dye")):""))).join("; ");
   const acctInfo = (speed==="account") ? (" — " + (body.carrier||"carrier") + " acct " + (body.shipAccount||"(not provided)")) : "";
   const shipMethod = SHIP_SPEEDS[speed].label + (speed==="pickup" ? " (free)" : "") + acctInfo;
-  const notes = ("*** PO / INVOICE ORDER — UNPAID — verify credit & confirm price before production *** | "
-    + summary + " | " + shipMethod + (body.matCert?" | Material cert":"")).slice(0, 495);
+  // Keep the WEB- order number as the identifier (like card web orders), tagged with the customer PO.
+  const webNo = (body.orderNo && /^WEB-[0-9]{8}-[0-9]{3,5}$/.test(body.orderNo)) ? body.orderNo
+    : ("WEB-" + new Date().toISOString().slice(0,10).replace(/-/g,"") + "-" + Math.floor(1000+Math.random()*9000));
+  const orderIdent = webNo + " (PO " + po + ")";
+  const notes = ("*** WEB PO / INVOICE ORDER — UNPAID — verify credit & confirm price before production *** | Customer PO: "
+    + po + " | " + summary + " | " + shipMethod + (body.matCert?" | Material cert":"")).slice(0, 495);
 
-  const orderNo = (body.orderNo && /^WEB-[0-9]{8}-[0-9]{3,5}$/.test(body.orderNo)) ? body.orderNo : "";
   const contactVal = (body.name || "") + (body.email ? " <" + body.email + ">" : "");
   const due = addBusinessDays(new Date(), leadDaysCalc(parts)).toISOString().slice(0,10);
 
   const cells = [
     { columnId: COL.orderStatus, value: "Pre Sale", strict: false },
-    { columnId: COL.poNumber,    value: po },
+    { columnId: COL.poNumber,    value: orderIdent },
     { columnId: COL.company,     value: body.company || body.name || "Web PO Order", strict: false },
     { columnId: COL.contact,     value: contactVal || "Web PO Order", strict: false },
     { columnId: COL.price,       value: price },
