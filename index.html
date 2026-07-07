@@ -239,13 +239,28 @@
     </div>
   </div>
   <div class="ordernote" id="orderNote">
-    <b>Ways to place your order:</b>
-    <div style="margin-top:8px;display:grid;gap:7px">
-      <div id="orderWayPay"><b>💳 Order &amp; pay online</b> — click <b>Order &amp; pay</b> above to check out securely by card. Your STL files upload automatically and your order goes straight into production. <i>Fastest option.</i></div>
-      <div><b>🧾 Order by PO (invoice me)</b> — enter your PO under Order options and click <b>Submit PO</b>. We'll review and send an invoice on terms — no card required.</div>
-      <div><b>✉️ Email your quote</b> — click <b>Email quote</b> or <b>Download PDF</b>, then send it to <a href="mailto:sales@3dpx.com">sales@3dpx.com</a> with your STL file attached. We'll reply to confirm, arrange payment, and set your lead time.</div>
-      <div><b>📞 Call or email us</b> — reach our team at <a href="tel:+13128963399">(312) 896-3399</a> or <a href="mailto:sales@3dpx.com">sales@3dpx.com</a> for purchase orders, volume pricing, material certs, or any questions.</div>
-      <div style="color:#5a6678"><b>🏭 Local pickup</b> — choosing <b>Pickup at 3DPX</b> under Delivery ships free; we'll email you when your order is ready to collect in Chicago.</div>
+    <div style="font-weight:700;color:#1b2a4a;font-size:15px;letter-spacing:.2px">How to place your order</div>
+    <div style="margin-top:12px;border-top:1px solid #e2e8f2">
+      <div id="orderWayPay" style="display:flex;flex-wrap:wrap;gap:2px 16px;padding:11px 2px;border-bottom:1px solid #eef2f8">
+        <div style="flex:0 0 150px;font-weight:700;color:#1b2a4a;font-size:13px">Order &amp; pay online<span style="color:#1e9e6a;font-weight:600;font-size:11px"> · fastest</span></div>
+        <div style="flex:1 1 240px;color:#42506b;font-size:12.5px;line-height:1.5">Check out securely by card with the <b>Order &amp; pay</b> button. STL files upload automatically and the order routes directly into production.</div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:2px 16px;padding:11px 2px;border-bottom:1px solid #eef2f8">
+        <div style="flex:0 0 150px;font-weight:700;color:#1b2a4a;font-size:13px">Purchase order</div>
+        <div style="flex:1 1 240px;color:#42506b;font-size:12.5px;line-height:1.5">Enter your PO number under <b>Order options</b> and click <b>Submit PO</b> to order on account. We review and invoice on terms — no card required.</div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:2px 16px;padding:11px 2px;border-bottom:1px solid #eef2f8">
+        <div style="flex:0 0 150px;font-weight:700;color:#1b2a4a;font-size:13px">Email a quote</div>
+        <div style="flex:1 1 240px;color:#42506b;font-size:12.5px;line-height:1.5">Use <b>Email quote</b> or <b>Download PDF</b>, then send it with your STL to <a href="mailto:sales@3dpx.com">sales@3dpx.com</a>. We'll confirm and arrange payment.</div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:2px 16px;padding:11px 2px;border-bottom:1px solid #eef2f8">
+        <div style="flex:0 0 150px;font-weight:700;color:#1b2a4a;font-size:13px">Contact sales</div>
+        <div style="flex:1 1 240px;color:#42506b;font-size:12.5px;line-height:1.5">Call <a href="tel:+13128963399">(312) 896-3399</a> or email <a href="mailto:sales@3dpx.com">sales@3dpx.com</a> for volume pricing, material certification, or engineering questions.</div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:2px 16px;padding:11px 2px">
+        <div style="flex:0 0 150px;font-weight:700;color:#1b2a4a;font-size:13px">Local pickup</div>
+        <div style="flex:1 1 240px;color:#42506b;font-size:12.5px;line-height:1.5">Select <b>Pickup at 3DPX</b> under Delivery for free collection at our Chicago facility; we'll notify you when the order is ready.</div>
+      </div>
     </div>
   </div>
   <details class="specs">
@@ -572,6 +587,10 @@ function render(){
           </select></div>
         <div class="o"><label>Finishing (optional)</label>
           <label class="chk"><input type="checkbox" data-k="vs" data-id="${p.id}" ${p.vs?"checked":""}> Vapor smooth (+30%, +1 day)</label></div>
+        <div class="o"><label>Drawing / spec (optional)</label>
+          <input type="file" accept="application/pdf,image/*" data-draw="${p.id}">
+          <div style="font-size:11px;margin-top:3px">${p.drawingName?('<span style="color:#1e7d52">✓ '+esc(p.drawingName)+' attached</span>'):'<span style="color:#8a95a8">PDF or image — call out critical dimensions, inserts, tolerances</span>'}</div>
+        </div>
       </div>
       <div class="config">
         <div class="crow"><span>Process</span><b>Selective Laser Sintering (SLS)</b></div>
@@ -594,6 +613,14 @@ function render(){
       else p[k]=(k==="qty")?(parseInt(inp.value)||1):inp.value;
       if(k==="color") p.dye=(p.color!=="natural");
       render();});
+  });
+  ul.querySelectorAll("[data-draw]").forEach(inp=>{
+    inp.addEventListener("change",()=>{
+      const p=parts.find(x=>x.id==inp.dataset.draw); if(!p)return;
+      const f=inp.files&&inp.files[0]; if(!f)return;
+      if(f.size>6*1024*1024){alert("Drawing is too large (max 6 MB). Please compress it or use a smaller file.");inp.value="";return;}
+      f.arrayBuffer().then(buf=>{p.drawingBuf=buf;p.drawingName=f.name;render();});
+    });
   });
   parts.forEach(p=>{const slot=ul.querySelector('.viewslot[data-view="'+p.id+'"]');const vv=viewers[p.id];if(slot&&vv){slot.appendChild(vv.canvas);applyFinish(vv.mesh.material,p);}});
 
@@ -752,13 +779,14 @@ document.querySelectorAll("[data-bulk]").forEach(b=>b.onclick=()=>{const[k,v]=b.
 /* ---- Online payment (Stripe Checkout) ---- */
 function genOrderNo(){const d=new Date();return "WEB-"+d.getFullYear()+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0")+"-"+Math.floor(1000+Math.random()*9000);}
 /* ---- Production traveler PDF (per part) — auto-attached to the SLS Jobs order ---- */
+function estDueDate(days){const r=new Date();let a=0;while(a<days){r.setDate(r.getDate()+1);const d=r.getDay();if(d!==0&&d!==6)a++;}return r.toLocaleDateString("en-US");}
 function buildTravelerPDF(orderNo,opts){
   opts=opts||{};
   const JS=window.jspdf&&window.jspdf.jsPDF; if(!JS||!parts.length) return null;
   const doc=new JS({unit:"pt",format:"letter"}); if(typeof doc.autoTable!=="function") return null;
   const NAVY=[27,42,74],ORANGE=[242,106,33],HEAD=[238,242,248],INK=[27,35,48],GREY=[90,102,120];
   const W=doc.internal.pageSize.getWidth(), M=40, CW=W-2*M;
-  const email=v("cEmail")||"—"; const orderDate=new Date().toLocaleDateString("en-US");
+  const email=v("cEmail")||"—"; const orderDate=new Date().toLocaleDateString("en-US"); const due=estDueDate(orderLeadDays());
   const gen=new Date().toLocaleString("en-US",{year:"numeric",month:"2-digit",day:"2-digit",hour:"numeric",minute:"2-digit"});
   const type=opts.po?("Web order (PO "+opts.po+")"):"Web order (card)";
   const notesTxt="Bead blast standard. "+(opts.po?("PO "+opts.po+" — verify credit & confirm price before production. "):"")+(parts.some(p=>p.dye)?"Dyed parts per Color column. ":"")+(parts.some(p=>p.vs)?"Vapor smoothing required. ":"");
@@ -784,12 +812,12 @@ function buildTravelerPDF(orderNo,opts){
     doc.text(p.x+" × "+p.y+" × "+p.z+" mm   ·   "+(p.x/25.4).toFixed(2)+" × "+(p.y/25.4).toFixed(2)+" × "+(p.z/25.4).toFixed(2)+" in",W/2,y,{align:"center"});
     y+=14;
     const clr=p.dye?COLORS[partColor(p)].label:"White (Natural)";
-    doc.autoTable(Object.assign({},base,{startY:y,head:[["Order #","Order Date","Contact"]],body:[[orderNo,orderDate,email]]}));
+    doc.autoTable(Object.assign({},base,{startY:y,head:[["Order #","Order Date","Due date","Contact"]],body:[[orderNo,orderDate,due,email]]}));
     doc.autoTable(Object.assign({},base,{startY:doc.lastAutoTable.finalY+8,head:[["Part Name","Quantity","Order Type"]],body:[[p.name,String(p.qty),type]]}));
     doc.autoTable(Object.assign({},base,{startY:doc.lastAutoTable.finalY+8,head:[["Process","Material","Color"]],body:[["SLS (Selective Laser Sintering)","Nylon 12 (PA12)",clr]]}));
     doc.autoTable(Object.assign({},base,{startY:doc.lastAutoTable.finalY+8,head:[["Finish","Inspection"]],body:[[finishLabel(p),"Standard"]]}));
-    doc.autoTable({startY:doc.lastAutoTable.finalY+8,head:[["Notes"]],body:[[notesTxt||"—"]],theme:"grid",styles:{fontSize:9.5,cellPadding:5,halign:"left",textColor:INK,lineColor:[210,216,226]},headStyles:{fillColor:NAVY,textColor:[255,255,255],fontStyle:"bold",halign:"center"},margin:{left:M,right:M},tableWidth:CW});
-    const ops=["Printed"];if(p.dye)ops.push("Dyed ("+clr+")");if(p.vs)ops.push("Vapor smoothed");ops.push("Bead blasted","Inspected","Bagged & tagged","Shipped / picked up");
+    doc.autoTable({startY:doc.lastAutoTable.finalY+8,head:[["Notes"]],body:[[((notesTxt||"")+(p.drawingName?("Reference drawing attached: "+p.drawingName+" — verify critical dimensions / insert requirements. "):"")).trim()||"—"]],theme:"grid",styles:{fontSize:9.5,cellPadding:5,halign:"left",textColor:INK,lineColor:[210,216,226]},headStyles:{fillColor:NAVY,textColor:[255,255,255],fontStyle:"bold",halign:"center"},margin:{left:M,right:M},tableWidth:CW});
+    const ops=["Printed"];if(p.dye)ops.push("Dyed ("+clr+")");if(p.vs)ops.push("Vapor smoothed");ops.push("Bead blasted","Inspected");if(p.drawingName)ops.push("Critical dims verified to drawing");ops.push("Bagged & tagged","Shipped / picked up");
     doc.autoTable({startY:doc.lastAutoTable.finalY+14,head:[["Production checklist","Done","Initials","Date"]],body:ops.map(o=>[o,"","",""]),theme:"grid",styles:{fontSize:9.5,cellPadding:6,textColor:INK,lineColor:[210,216,226]},headStyles:{fillColor:HEAD,textColor:NAVY,fontStyle:"bold"},columnStyles:{0:{cellWidth:CW-210,halign:"left"},1:{cellWidth:70,halign:"center"},2:{cellWidth:70,halign:"center"},3:{cellWidth:70,halign:"center"}},margin:{left:M,right:M}});
     const ph=doc.internal.pageSize.getHeight();
     doc.setFontSize(8);doc.setTextColor(GREY[0],GREY[1],GREY[2]);doc.setFont("helvetica","normal");
@@ -919,9 +947,14 @@ async function startPayment(){
   // upload STL file(s) first (best-effort; up to ~6MB each, else it falls back to email)
   btn.textContent="Uploading files…";
   for(let i=0;i<parts.length;i++){const p=parts[i];
-    if(!p.fileBuf || p.fileBuf.byteLength>6*1024*1024) continue;
-    try{ await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(orderNo)+"&i="+i+"&name="+encodeURIComponent(p.fileName||(p.name+".stl")),
-      {method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.fileBuf}); }catch(e){}
+    if(p.fileBuf && p.fileBuf.byteLength<=6*1024*1024){
+      try{ await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(orderNo)+"&i="+i+"&name="+encodeURIComponent(p.fileName||(p.name+".stl")),
+        {method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.fileBuf}); }catch(e){}
+    }
+    if(p.drawingBuf && p.drawingBuf.byteLength<=6*1024*1024){
+      try{ await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(orderNo)+"&i=draw"+i+"&name="+encodeURIComponent("drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf"))),
+        {method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.drawingBuf}); }catch(e){}
+    }
   }
   await uploadTraveler(orderNo,{});
   await uploadPackingSlip(orderNo,{});
@@ -959,9 +992,14 @@ async function submitPO(){
   const orderNo=genOrderNo();
   btn.textContent="Uploading files…";
   for(let i=0;i<parts.length;i++){const p=parts[i];
-    if(!p.fileBuf || p.fileBuf.byteLength>6*1024*1024) continue;
-    try{ await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(orderNo)+"&i="+i+"&name="+encodeURIComponent(p.fileName||(p.name+".stl")),
-      {method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.fileBuf}); }catch(e){}
+    if(p.fileBuf && p.fileBuf.byteLength<=6*1024*1024){
+      try{ await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(orderNo)+"&i="+i+"&name="+encodeURIComponent(p.fileName||(p.name+".stl")),
+        {method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.fileBuf}); }catch(e){}
+    }
+    if(p.drawingBuf && p.drawingBuf.byteLength<=6*1024*1024){
+      try{ await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(orderNo)+"&i=draw"+i+"&name="+encodeURIComponent("drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf"))),
+        {method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.drawingBuf}); }catch(e){}
+    }
   }
   const pf=document.getElementById("poFile");
   if(pf&&pf.files&&pf.files[0]&&pf.files[0].size<=6*1024*1024){
