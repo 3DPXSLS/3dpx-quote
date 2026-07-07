@@ -1119,9 +1119,14 @@ async function saveQuote(){
       if(box){box.style.display="block";
         box.innerHTML='<b style="color:#1b2a4a">Customer quote link ready ('+data.id+')</b><div style="font-size:12px;color:#5a6678;margin:2px 0 8px">Click <b>Copy quote link</b> and paste into your reply email &mdash; it appears as a tidy &ldquo;'+label+'&rdquo; link. The quote PDF was also downloaded to attach.</div><input id="quoteLinkInput" readonly value="'+link+'" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #cbd5e6;border-radius:6px;font-size:12px"><div style="margin-top:8px"><button class="btn ghost" id="copyLinkBtn" type="button">Copy quote link</button></div>';
         const cb=document.getElementById("copyLinkBtn");
-        if(cb)cb.onclick=async()=>{ const html='<a href="'+link+'">'+label+'</a>';
-          try{ await navigator.clipboard.write([new ClipboardItem({"text/html":new Blob([html],{type:"text/html"}),"text/plain":new Blob([link],{type:"text/plain"})})]); cb.textContent="Copied ✓ — pastes as “"+label+"”"; }
-          catch(e){ try{await navigator.clipboard.writeText(link);}catch(e2){} cb.textContent="Copied ✓"; } };
+        if(cb)cb.onclick=()=>{
+          const a=document.createElement("a"); a.href=link; a.textContent=label;
+          const hold=document.createElement("div"); hold.contentEditable="true"; hold.style.cssText="position:fixed;left:-9999px;top:0;"; hold.appendChild(a); document.body.appendChild(hold);
+          const rg=document.createRange(); rg.selectNodeContents(hold); const sel=getSelection(); sel.removeAllRanges(); sel.addRange(rg);
+          let ok=false; try{ ok=document.execCommand("copy"); }catch(e){}
+          sel.removeAllRanges(); document.body.removeChild(hold);
+          if(!ok){ try{navigator.clipboard.writeText(link);}catch(e){} }
+          cb.textContent="Copied ✓ — pastes as “"+label+"”"; };
         box.scrollIntoView({behavior:"smooth",block:"center"});
       }
       try{const doc=buildQuotePDF(data.id,{});if(doc)doc.save("quote-"+data.id+".pdf");}catch(e){}
