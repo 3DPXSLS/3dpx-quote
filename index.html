@@ -369,8 +369,11 @@ function qtyDiscPct(q){let d=0;for(const t of QTY_BREAKS)if(q>=t.q)d=t.d;return 
 function valueDiscPct(v){let d=0;for(const t of VALUE_BREAKS)if(v>=t.v)d=t.d;return d;}
 function nextQtyTier(q){for(const t of QTY_BREAKS)if(t.q>q&&t.d>qtyDiscPct(q))return t;return null;}
 function nextValueTier(g){for(const t of VALUE_BREAKS)if(t.v>g)return t;return null;}
-function lineCalc(p){const list=unitPrice(p);const qp=qtyDiscPct(p.qty);const net=list*(1-qp/100);
-  return {list,qp,net,lineList:list*p.qty,lineNet:net*p.qty};}
+function lineCalc(p){
+  const ov=(p&&p.override!=null&&+p.override>0)?+p.override:0;   // rep per-unit override → final price, no discounts
+  if(ov>0){return {list:ov,qp:0,net:ov,lineList:ov*p.qty,lineNet:ov*p.qty,fixed:true};}
+  const list=unitPrice(p);const qp=qtyDiscPct(p.qty);const net=list*(1-qp/100);
+  return {list,qp,net,lineList:list*p.qty,lineNet:net*p.qty,fixed:false};}
 const FINISH = {  // finishing add-ons (stackable). Bead blast is standard & included.
   dyePct:5, dyeDays:1,         // Dyed black: +5%, +1 business day
   vsPct:30,  vsMin:15, vsDays:1 // Vapor smooth: +30% ($15/part floor), +1 business day
@@ -414,16 +417,19 @@ function unitPrice(p){
 }
 let ADDL_DISC=0;  // rep-set additional discount ($ off), internal only
 function orderTotals(){
-  let gross=0, postQty=0;
-  parts.forEach(p=>{const c=lineCalc(p);gross+=c.lineList;postQty+=c.lineNet;});
-  const qtyDisc=gross-postQty;
-  const vPct=valueDiscPct(gross);
+  // discGross/postQty = discountable (normal) lines only; fixedTot = rep-overridden lines (no discounts)
+  let discGross=0, postQty=0, fixedTot=0, hasNormal=false;
+  parts.forEach(p=>{const c=lineCalc(p); if(c.fixed){fixedTot+=c.lineNet;} else {discGross+=c.lineList; postQty+=c.lineNet; hasNormal=true;}});
+  const qtyDisc=discGross-postQty;
+  const vPct=valueDiscPct(discGross);
   let afterDisc, qtyDiscShown=qtyDisc, valDiscShown=0, valPctShown=0;
   if(STACK_DISCOUNTS){ valDiscShown=postQty*vPct/100; valPctShown=vPct; afterDisc=postQty-valDiscShown; }
-  else { const valAlt=gross*vPct/100;
-    if(valAlt>=qtyDisc){ afterDisc=gross-valAlt; qtyDiscShown=0; valDiscShown=valAlt; valPctShown=vPct; }
+  else { const valAlt=discGross*vPct/100;
+    if(valAlt>=qtyDisc){ afterDisc=discGross-valAlt; qtyDiscShown=0; valDiscShown=valAlt; valPctShown=vPct; }
     else { afterDisc=postQty; } }
-  const addlPct=Math.max(0,Math.min(100,ADDL_DISC||0)); const addlApplied=parts.length?afterDisc*addlPct/100:0; afterDisc=afterDisc-addlApplied;
+  const addlPct=Math.max(0,Math.min(100,ADDL_DISC||0)); const addlApplied=hasNormal?afterDisc*addlPct/100:0; afterDisc=afterDisc-addlApplied;
+  afterDisc=afterDisc+fixedTot;                 // overridden lines added at their final price
+  const gross=discGross+fixedTot;               // display subtotal (list) incl. overridden lines
   const topUp=parts.length?Math.max(0,RULES.orderMin-afterDisc):0;
   const region=(typeof document!=="undefined"&&document.getElementById("sRegion"))?document.getElementById("sRegion").value:"us";
   const zip=(typeof document!=="undefined"&&document.getElementById("sZip"))?document.getElementById("sZip").value:"";
@@ -571,8 +577,9 @@ function render(){
   parts.forEach((p,i)=>{
     const c=lineCalc(p),checks=partChecks(p);
     const nt=nextQtyTier(p.qty);
+    const _df2=c.fixed?1:_df;
     let nudge="";
-    if(nt){const need=nt.q-p.qty, eaNext=c.list*(1-nt.d/100);
+    if(nt&&!c.fixed){const need=nt.q-p.qty, eaNext=c.list*(1-nt.d/100);
       nudge=`<div class="nudge" data-bump="${p.id}" data-to="${nt.q}">💡 Add ${need} more (${nt.q} total) for <b>${nt.d}% off</b> — ${money(eaNext)}/ea<span class="go">Apply →</span></div>`;}
     const li=document.createElement("li");li.className="part";
     li.innerHTML=`
@@ -580,13 +587,13 @@ function render(){
         <div style="display:flex;gap:12px;align-items:flex-start;min-width:0">
           ${window.THREE&&p.geo?`<div class="viewwrap"><div class="viewslot" data-view="${p.id}" title="Drag to rotate"></div><div class="viewhint">↻ drag to rotate</div></div>`:(p.thumb?`<img class="thumb" src="${p.thumb}" alt="3D preview of ${esc(p.name)}">`:"")}
           <div style="min-width:0"><div class="nm">${esc(p.name)}</div>
-          <div class="dims">${p.x}×${p.y}×${p.z} mm · ${p.vol} cm³ · qty <b>${p.qty}</b>${c.qp>0?` · <span class="save">${c.qp}% qty</span>`:""}${_valPct>0?` · <span class="save">${_valPct}% order</span>`:""}${_addlPct>0?` · <span class="save">${_addlPct}% add&#39;l</span>`:""}</div>
+          <div class="dims">${p.x}×${p.y}×${p.z} mm · ${p.vol} cm³ · qty <b>${p.qty}</b>${c.fixed?` · <span class="save">custom $</span>`:`${c.qp>0?` · <span class="save">${c.qp}% qty</span>`:""}${_valPct>0?` · <span class="save">${_valPct}% order</span>`:""}${_addlPct>0?` · <span class="save">${_addlPct}% add&#39;l</span>`:""}`}</div>
           <div class="dims" style="opacity:.7;margin-top:1px">${(p.x/25.4).toFixed(2)}×${(p.y/25.4).toFixed(2)}×${(p.z/25.4).toFixed(2)} in · ${(p.vol*0.0610237).toFixed(2)} in³</div></div>
         </div>
         <div style="display:flex;align-items:center;gap:12px">
           <div style="text-align:right">
-            <div class="price">${money(c.lineNet*_df)}</div>
-            <div class="each">${(c.qp>0||_df<0.999)?`<span class="was">${money(c.list)}</span> `:""}${money(c.net*_df)} <span class="ea">/ea</span></div>
+            <div class="price">${money(c.lineNet*_df2)}</div>
+            <div class="each">${(!c.fixed&&(c.qp>0||_df<0.999))?`<span class="was">${money(c.list)}</span> `:""}${money(c.net*_df2)} <span class="ea">/ea</span></div>
           </div>
           <button class="rm" data-del="${p.id}" title="Remove">×</button></div>
       </div>
@@ -607,6 +614,9 @@ function render(){
           <input type="file" accept="application/pdf,image/*" data-draw="${p.id}">
           <div style="font-size:11px;margin-top:3px">${p.drawingName?('<span style="color:#1e7d52">✓ '+esc(p.drawingName)+' attached</span>'):'<span style="color:#8a95a8">PDF or image — call out critical dimensions, inserts, tolerances</span>'}</div>
         </div>
+        ${INTERNAL?`<div class="o"><label>Price override $/unit · rep</label>
+          <input type="number" min="0" step="0.01" data-k="override" data-id="${p.id}" value="${(p.override!=null&&+p.override>0)?p.override:""}" placeholder="est ${c.list.toFixed(2)} — blank = auto">
+          <div style="font-size:11px;margin-top:3px;color:#8a95a8">Overwrites the estimate for this item. Final price — discounts don't apply.</div></div>`:""}
       </div>
       <div class="config">
         <div class="crow"><span>Process</span><b>Selective Laser Sintering (SLS)</b></div>
@@ -622,10 +632,11 @@ function render(){
   ul.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{disposeViewer(b.dataset.del);parts=parts.filter(p=>p.id!=b.dataset.del);render();});
   ul.querySelectorAll("[data-bump]").forEach(b=>b.onclick=()=>{const p=parts.find(p=>p.id==b.dataset.bump);if(p){p.qty=parseInt(b.dataset.to);render();}});
   ul.querySelectorAll("input,select").forEach(inp=>{
-    const ev=(inp.type==="checkbox"||inp.tagName==="SELECT")?"change":"input";
+    const ev=(inp.type==="checkbox"||inp.tagName==="SELECT"||inp.dataset.k==="override")?"change":"input";
     inp.addEventListener(ev,()=>{const p=parts.find(p=>p.id==inp.dataset.id);if(!p)return;
       const k=inp.dataset.k;
       if(inp.type==="checkbox") p[k]=inp.checked;
+      else if(k==="override"){const val=(inp.value||"").trim();const n=parseFloat(val);p.override=(val===""||!(n>0))?null:n;}
       else p[k]=(k==="qty")?(parseInt(inp.value)||1):inp.value;
       if(k==="color") p.dye=(p.color!=="natural");
       render();});
@@ -675,14 +686,14 @@ function esc(s){return(s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"
 function quoteNum(){const d=new Date();return "WEB-"+d.getFullYear()+(""+(d.getMonth()+1)).padStart(2,"0")+(""+d.getDate()).padStart(2,"0")+"-"+(""+d.getHours()).padStart(2,"0")+(""+d.getMinutes()).padStart(2,"0");}
 function buildQuoteDoc(qn){
   const t=orderTotals(); const df=(1-(t.valPct||0)/100)*(1-(t.addlPct||0)/100);
-  const rows=parts.map((p,i)=>{const c=lineCalc(p);const dpct=Math.round((1-(c.net*df)/c.list)*100);const bd="border-bottom:1px solid #eef2f8";const bg=i%2?"background:#fafbfd;":"";return `<tr style="${bg}">
+  const rows=parts.map((p,i)=>{const c=lineCalc(p);const ldf=c.fixed?1:df;const dpct=c.fixed?0:Math.round((1-(c.net*df)/c.list)*100);const bd="border-bottom:1px solid #eef2f8";const bg=i%2?"background:#fafbfd;":"";return `<tr style="${bg}">
     <td style="padding:8px 6px;${bd}"><div style="display:flex;align-items:center;gap:8px">${p.thumb?`<img src="${p.thumb}" style="width:34px;height:34px;border:1px solid #e2e8f2;border-radius:5px;object-fit:contain">`:""}<span style="font-weight:600">${esc(p.name)}</span></div></td>
     <td style="padding:8px 6px;${bd};font-size:11px;color:#42506b">SLS · Nylon 12 · ${p.dye?("Dyed "+COLORS[partColor(p)].label):"White"}</td>
     <td style="padding:8px 6px;${bd}">${p.x}×${p.y}×${p.z} mm<div style="font-size:10px;color:#6b7891">${(p.x/25.4).toFixed(2)}×${(p.y/25.4).toFixed(2)}×${(p.z/25.4).toFixed(2)} in</div></td>
     <td style="padding:8px 6px;${bd}">${finishLabel(p)}${dpct>0?` <span style="color:#1e9e6a">(−${dpct}%)</span>`:""}</td>
     <td style="padding:8px 6px;${bd};text-align:center">${p.qty}</td>
-    <td style="padding:8px 6px;${bd};text-align:right">${money(c.net*df)}</td>
-    <td style="padding:8px 6px;${bd};text-align:right;font-weight:700">${money(c.lineNet*df)}</td></tr>`;}).join("");
+    <td style="padding:8px 6px;${bd};text-align:right">${money(c.net*ldf)}</td>
+    <td style="padding:8px 6px;${bd};text-align:right;font-weight:700">${money(c.lineNet*ldf)}</td></tr>`;}).join("");
   const name=v("cName"),co=v("cCo"),email=v("cEmail"),phone=v("cPhone");
   const acctLine=t.account?`${v("sCarrier")||"Carrier"} account ${v("sAcct")||"(number to be provided)"}`:"";
   const ship=t.pickup?"Pickup at 3DPX — 410 N. Milwaukee, Chicago, IL 60654":([v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", ")+(t.account?` · Ship via ${acctLine}`:""));
@@ -1111,7 +1122,7 @@ async function saveQuote(){
   try{
     const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({token:INTERNAL_TOKEN,id,
-        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,drawingName:p.drawingName||"",thumb:p.thumb||""})),
+        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,drawingName:p.drawingName||"",thumb:p.thumb||"",override:(p.override!=null&&+p.override>0)?+p.override:null})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
         matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
     const data=await r.json().catch(()=>({}));
@@ -1148,7 +1159,7 @@ async function loadQuote(id){
     set("sRegion",q.region);set("sZip",q.zip);set("sSpeed",q.shipSpeed);
     if(document.getElementById("matCert"))document.getElementById("matCert").checked=!!q.matCert;
     parts.length=0;
-    (q.parts||[]).forEach(p=>{parts.push({id:++pid,name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color||"natural",dye:!!p.dye,vs:!!p.vs,drawingName:p.drawingName||"",geo:null,area:0,thumb:null,fileBuf:null});});
+    (q.parts||[]).forEach(p=>{parts.push({id:++pid,name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color||"natural",dye:!!p.dye,vs:!!p.vs,drawingName:p.drawingName||"",override:(p.override!=null&&+p.override>0)?+p.override:null,geo:null,area:0,thumb:null,fileBuf:null});});
     toggleShip();render();
     const b=document.getElementById("payBanner");
     if(b){b.style.display="block";b.style.background="#eef4ff";b.style.border="1px solid #b9cdf0";b.style.color="#1b2a4a";

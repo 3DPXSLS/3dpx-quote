@@ -77,14 +77,18 @@ function unitPrice(p) {
   return u;
 }
 function orderTotal(parts, region, matCert, speed, zip, addl) {
-  let gross=0, postQty=0;
+  // p.ov (rep per-unit override) → fixed line, excluded from all discounts.
+  let discGross=0, postQty=0, fixedTot=0, hasNormal=false;
   for (const p of parts) {
     const q = Math.max(1, parseInt(p.qty)||1);
-    const u = unitPrice(p);
-    gross += u*q; postQty += u*(1-qd(q)/100)*q;
+    const ov = (+p.ov>0) ? +p.ov : 0;
+    if (ov>0) { fixedTot += ov*q; }
+    else { const u = unitPrice(p); discGross += u*q; postQty += u*(1-qd(q)/100)*q; hasNormal=true; }
   }
-  const vp = vd(gross);
-  const after = (postQty - postQty*vp/100) * (1 - Math.max(0, Math.min(100, addl||0))/100);
+  const vp = vd(discGross);
+  let after = (postQty - postQty*vp/100);
+  if (hasNormal) after = after * (1 - Math.max(0, Math.min(100, addl||0))/100);
+  after += fixedTot;
   const topUp = Math.max(0, RULES.orderMin - after);
   const sp = SHIP_SPEEDS[speed] ? speed : "ground";
   let shipping = 0;
@@ -117,9 +121,10 @@ export default async (req) => {
   const sheetId = process.env.SMARTSHEET_SHEET_ID || SLS_JOBS_SHEET;
 
   const speed = SHIP_SPEEDS[body.shipSpeed] ? body.shipSpeed : "ground";
+  for (const p of parts) { if (p.ov != null) delete p.ov; }  // never trust a client-supplied override
   let addlDisc = Math.max(0, +body.addlDisc || 0);
   if (body.quoteId && /^Q-[A-Za-z0-9]{4,12}$/.test(body.quoteId)) {
-    try { const { getStore } = await import("@netlify/blobs"); const q = await getStore("orders").get("Q-QUOTES/" + body.quoteId + ".json", { type: "json" }); if (q && typeof q.addlDisc === "number") addlDisc = Math.max(0, q.addlDisc); } catch (e) {}
+    try { const { getStore } = await import("@netlify/blobs"); const q = await getStore("orders").get("Q-QUOTES/" + body.quoteId + ".json", { type: "json" }); if (q && typeof q.addlDisc === "number") addlDisc = Math.max(0, q.addlDisc); if (q && Array.isArray(q.parts)) q.parts.forEach((qp, i) => { if (parts[i] && qp && +qp.override > 0) parts[i].ov = +qp.override; }); } catch (e) {}
   }
   const price = orderTotal(parts, body.region, !!body.matCert, speed, body.zip, addlDisc);
   const totalParts = parts.reduce((s,p)=>s+(Math.max(1,parseInt(p.qty)||1)),0);
