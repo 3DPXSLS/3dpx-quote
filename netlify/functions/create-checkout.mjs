@@ -158,6 +158,8 @@ export default async (req) => {
   f.append("metadata[customer_email]", (body.email||"").slice(0,200));
   f.append("metadata[customer_phone]", (body.phone||"").slice(0,60));
   f.append("metadata[region]", (body.region||"us"));
+  f.append("metadata[source]", (body.source === "internal" ? "internal" : "web"));
+  if (body.quoteId) f.append("metadata[quote_id]", String(body.quoteId).slice(0,20));
   f.append("metadata[ship_speed]", speed);
   f.append("metadata[ship_method]", shipMethodLabel.slice(0,200));
   if (speed === "account") {

@@ -10,6 +10,7 @@
 // Env: STRIPE_SECRET_KEY, SMARTSHEET_TOKEN, SMARTSHEET_SHEET_ID (optional).
 
 import { sendOrderEmail } from "./_notify.mjs";
+import { logOrder } from "./_orderlog.mjs";
 
 const SLS_JOBS_SHEET = "7474902212077444";
 const COL = {
@@ -147,6 +148,13 @@ async function createRow(s, sheetId, token) {
     kind: "Card order (recovered)", orderNo: m.order_no, company: m.company || m.customer_name,
     contact: contactVal, price: subtotal, tax: taxAmt, pieces: m.total_parts,
     delivery: m.ship_method, due, payment: "Paid via Stripe", notes,
+  });
+  await logOrder({
+    orderNo: m.order_no, type: "Card (recovered)", source: m.source === "internal" ? "Internal" : "Web",
+    company: m.company || m.customer_name, contact: m.customer_name, email: m.customer_email,
+    phone: m.customer_phone, amount: subtotal, tax: taxAmt, pieces: m.total_parts, volume: m.total_vol,
+    colors: m.color, delivery: m.ship_method, payment: "Paid via Stripe", po: "",
+    quoteId: m.quote_id, shipTo: m.shipping_address, notes,
   });
   return true;
 }

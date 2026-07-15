@@ -4,6 +4,7 @@
 // Pricing is recomputed here (same model as create-checkout.mjs) for the quoted amount on record.
 
 import { sendOrderEmail } from "./_notify.mjs";
+import { logOrder } from "./_orderlog.mjs";
 
 const SLS_JOBS_SHEET = "7474902212077444";
 const COL = {
@@ -182,13 +183,18 @@ export default async (req) => {
   }
   const rowId = rowResp.result && rowResp.result[0] && rowResp.result[0].id;
 
-  // Notify the team (best-effort; no-op unless RESEND_API_KEY is set).
+  // Notify the team + log to the capture-all orders sheet (best-effort).
+  const payLabel = approved ? "Approved in writing — invoice on terms (no card)" : ("PO " + po + " — invoice on terms (unpaid)");
   await sendOrderEmail({
     kind: approved ? "Approved order" : "PO order", orderNo: orderIdent,
     company: body.company || body.name, contact: contactVal, price,
-    pieces: totalParts, delivery: shipMethod, due,
-    payment: approved ? "Approved in writing — invoice on terms (no card)" : ("PO " + po + " — invoice on terms (unpaid)"),
-    notes,
+    pieces: totalParts, delivery: shipMethod, due, payment: payLabel, notes,
+  });
+  await logOrder({
+    orderNo: webNo, type: approved ? "Approved" : "PO", source: body.source === "internal" ? "Internal" : "Web",
+    company: body.company || body.name, contact: body.name, email: body.email, phone: body.phone,
+    amount: price, pieces: totalParts, volume: totalVol, colors: colorVals.join(", "),
+    delivery: shipMethod, payment: payLabel, po, quoteId: body.quoteId, shipTo: body.shipAddress, notes,
   });
 
   // Attach uploaded STL(s) + PO doc (best-effort).

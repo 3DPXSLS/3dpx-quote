@@ -8,6 +8,7 @@
 
 import crypto from "node:crypto";
 import { sendOrderEmail } from "./_notify.mjs";
+import { logOrder } from "./_orderlog.mjs";
 
 const SLS_JOBS_SHEET = "7474902212077444";
 const COL = {
@@ -84,11 +85,18 @@ export default async (req) => {
   }
   const rowId = rowResp.result && rowResp.result[0] && rowResp.result[0].id;
 
-  // Notify the team (best-effort; no-op unless RESEND_API_KEY is set).
+  // Notify the team + log to the capture-all orders sheet (best-effort).
   await sendOrderEmail({
     kind: "Card order", orderNo: m.order_no, company: m.company || m.customer_name,
     contact: contactVal, price: price, tax: taxAmt, pieces: m.total_parts,
     delivery: m.ship_method, due, payment: "Paid via Stripe", notes: m.notes,
+  });
+  await logOrder({
+    orderNo: m.order_no, type: "Card", source: m.source === "internal" ? "Internal" : "Web",
+    company: m.company || m.customer_name, contact: m.customer_name, email: m.customer_email,
+    phone: m.customer_phone, amount: price, tax: taxAmt, pieces: m.total_parts, volume: m.total_vol,
+    colors: m.color, delivery: m.ship_method, payment: "Paid via Stripe", po: "",
+    quoteId: m.quote_id, shipTo: m.shipping_address, notes: m.notes,
   });
 
   // Attach uploaded STL file(s) to the new row (best-effort; never fails the webhook).

@@ -1036,7 +1036,7 @@ async function startPayment(){
         shipAccount:(shipSpeed()==="account")?v("sAcct"):"",
         shipAddress:(shipSpeed()==="pickup")?"Pickup at 3DPX (Chicago, IL)":[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "),
         matCert:document.getElementById("matCert").checked,
-        quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,
+        quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,source:INTERNAL?"internal":"web",
         returnUrl:document.referrer||location.href})});
     const data=await r.json().catch(()=>({}));
     if(data.url){ try{window.top.location.href=data.url;}catch(e){window.location.href=data.url;} return; }
@@ -1078,7 +1078,7 @@ async function submitPO(approved){
         zip:v("sZip"), shipSpeed:shipSpeed(),
         carrier:(shipSpeed()==="account")?v("sCarrier"):"", shipAccount:(shipSpeed()==="account")?v("sAcct"):"",
         shipAddress:(shipSpeed()==="pickup")?"Pickup at 3DPX (Chicago, IL)":[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "),
-        matCert:document.getElementById("matCert").checked,quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC})});
+        matCert:document.getElementById("matCert").checked,quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,source:INTERNAL?"internal":"web"})});
     const data=await r.json().catch(()=>({}));
     if(data.ok){
       const b=document.getElementById("payBanner");
