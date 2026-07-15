@@ -501,6 +501,24 @@ async function stepToGeom(buf){
   if(!tris.length) throw new Error("empty mesh");
   return acc(tris);
 }
+/* Build a binary STL from a non-indexed position array (9 floats/triangle) — used to attach a
+   ready-to-slice .stl alongside the original .stp on STEP orders. */
+function geoToSTL(pos){
+  const nTri=Math.floor(pos.length/9); if(!nTri) return null;
+  const buf=new ArrayBuffer(84+nTri*50); const dv=new DataView(buf); dv.setUint32(80,nTri,true);
+  let o=84;
+  for(let i=0;i<nTri;i++){ const p=i*9;
+    const ax=pos[p],ay=pos[p+1],az=pos[p+2],bx=pos[p+3],by=pos[p+4],bz=pos[p+5],cx=pos[p+6],cy=pos[p+7],cz=pos[p+8];
+    const ux=bx-ax,uy=by-ay,uz=bz-az,vx=cx-ax,vy=cy-ay,vz=cz-az;
+    let nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx; const L=Math.hypot(nx,ny,nz)||1; nx/=L;ny/=L;nz/=L;
+    dv.setFloat32(o,nx,true);dv.setFloat32(o+4,ny,true);dv.setFloat32(o+8,nz,true);o+=12;
+    dv.setFloat32(o,ax,true);dv.setFloat32(o+4,ay,true);dv.setFloat32(o+8,az,true);o+=12;
+    dv.setFloat32(o,bx,true);dv.setFloat32(o+4,by,true);dv.setFloat32(o+8,bz,true);o+=12;
+    dv.setFloat32(o,cx,true);dv.setFloat32(o+4,cy,true);dv.setFloat32(o+8,cz,true);o+=12;
+    dv.setUint16(o,0,true);o+=2;
+  }
+  return buf;
+}
 
 /* ---- state ---- */
 let parts=[], pid=0;
@@ -1040,8 +1058,10 @@ async function putFile(orderNo,i,name,buf){
 async function uploadOrderFiles(orderNo){
   const missed=[];
   for(let i=0;i<parts.length;i++){const p=parts[i];
-    if(p.fileBuf){ if(p.fileBuf.byteLength>6*1024*1024){missed.push((p.fileName||p.name)+" — STL over 6 MB");}
+    if(p.fileBuf){ if(p.fileBuf.byteLength>6*1024*1024){missed.push((p.fileName||p.name)+" — file over 6 MB");}
       else if(!await putFile(orderNo,i,p.fileName||(p.name+".stl"),p.fileBuf)) missed.push(p.fileName||(p.name+".stl")); }
+    if(p.geo && /\.(stp|step)$/i.test(p.fileName||"")){   // STEP → also attach a derived .stl for production
+      try{ const stl=geoToSTL(p.geo); if(stl && stl.byteLength<=6*1024*1024) await putFile(orderNo,"stl"+i,(p.name||("part"+(i+1)))+".stl",stl); }catch(e){} }
     if(p.drawingBuf){ if(p.drawingBuf.byteLength>6*1024*1024){missed.push((p.drawingName||p.name)+" — drawing over 6 MB");}
       else if(!await putFile(orderNo,"draw"+i,"drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf")),p.drawingBuf)) missed.push("drawing "+(i+1)); }
   }
