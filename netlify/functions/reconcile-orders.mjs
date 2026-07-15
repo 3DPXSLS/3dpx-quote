@@ -9,6 +9,8 @@
 //
 // Env: STRIPE_SECRET_KEY, SMARTSHEET_TOKEN, SMARTSHEET_SHEET_ID (optional).
 
+import { sendOrderEmail } from "./_notify.mjs";
+
 const SLS_JOBS_SHEET = "7474902212077444";
 const COL = {
   orderStatus: 3699329920722820,
@@ -140,6 +142,12 @@ async function createRow(s, sheetId, token) {
       }
     } catch (e) { console.log("reconcile attach step failed:", e.message); }
   }
+
+  await sendOrderEmail({
+    kind: "Card order (recovered)", orderNo: m.order_no, company: m.company || m.customer_name,
+    contact: contactVal, price: subtotal, tax: taxAmt, pieces: m.total_parts,
+    delivery: m.ship_method, due, payment: "Paid via Stripe", notes,
+  });
   return true;
 }
 
@@ -151,3 +159,4 @@ function addBusinessDays(d, n) {
 function json(obj, status = 200) {
   return new Response(JSON.stringify(obj, null, 2), { status, headers: { "Content-Type": "application/json" } });
 }
+// reconcile-orders: pulls paid Stripe sessions → creates missing SLS Jobs rows (idempotent).

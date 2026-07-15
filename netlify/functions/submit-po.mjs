@@ -3,6 +3,8 @@
 // Env: SMARTSHEET_TOKEN (required), SMARTSHEET_SHEET_ID (optional; defaults to SLS Jobs).
 // Pricing is recomputed here (same model as create-checkout.mjs) for the quoted amount on record.
 
+import { sendOrderEmail } from "./_notify.mjs";
+
 const SLS_JOBS_SHEET = "7474902212077444";
 const COL = {
   orderStatus: 3699329920722820,
@@ -179,6 +181,15 @@ export default async (req) => {
     return json({ error: "Couldn't record your PO. Please email your quote + PO to sales@3dpx.com." }, 502);
   }
   const rowId = rowResp.result && rowResp.result[0] && rowResp.result[0].id;
+
+  // Notify the team (best-effort; no-op unless RESEND_API_KEY is set).
+  await sendOrderEmail({
+    kind: approved ? "Approved order" : "PO order", orderNo: orderIdent,
+    company: body.company || body.name, contact: contactVal, price,
+    pieces: totalParts, delivery: shipMethod, due,
+    payment: approved ? "Approved in writing — invoice on terms (no card)" : ("PO " + po + " — invoice on terms (unpaid)"),
+    notes,
+  });
 
   // Attach uploaded STL(s) + PO doc (best-effort).
   if (rowId && body.orderNo) {

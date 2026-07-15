@@ -7,6 +7,7 @@
 //   SMARTSHEET_SHEET_ID    - (optional) target sheet; defaults to SLS Jobs.
 
 import crypto from "node:crypto";
+import { sendOrderEmail } from "./_notify.mjs";
 
 const SLS_JOBS_SHEET = "7474902212077444";
 const COL = {
@@ -82,6 +83,13 @@ export default async (req) => {
     return new Response("payment ok, sheet write failed", { status: 200 });
   }
   const rowId = rowResp.result && rowResp.result[0] && rowResp.result[0].id;
+
+  // Notify the team (best-effort; no-op unless RESEND_API_KEY is set).
+  await sendOrderEmail({
+    kind: "Card order", orderNo: m.order_no, company: m.company || m.customer_name,
+    contact: contactVal, price: price, tax: taxAmt, pieces: m.total_parts,
+    delivery: m.ship_method, due, payment: "Paid via Stripe", notes: m.notes,
+  });
 
   // Attach uploaded STL file(s) to the new row (best-effort; never fails the webhook).
   if (rowId && m.order_no) {
