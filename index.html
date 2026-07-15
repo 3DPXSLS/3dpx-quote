@@ -1011,9 +1011,10 @@ function buildQuotePDF(orderNo,opts){
   let my=y; meta.forEach(m=>{doc.setFont("helvetica","bold");doc.text(m[0],W-M-150,my);doc.setFont("helvetica","normal");doc.text(String(m[1]),W-M,my,{align:"right"});my+=14;});
   y=Math.max(py,my)+8;
   const df=(1-(t.valPct||0)/100)*(1-(t.addlPct||0)/100);
-  const rows=parts.map((p,i)=>{const c=lineCalc(p);const clr=p.dye?COLORS[partColor(p)].label:"White (Natural)";
-    const dpct=Math.round((1-(c.net*df)/c.list)*100);
-    return [String(i+1),p.name,"SLS · Nylon 12 · "+clr+" · "+finishLabel(p)+(dpct>0?"  ·  −"+dpct+"% off":""),String(p.qty),money(c.net*df),money(c.lineNet*df)];});
+  const rows=parts.map((p,i)=>{const c=lineCalc(p);const ldf=c.fixed?1:df;const clr=p.dye?COLORS[partColor(p)].label:"White (Natural)";
+    const dpct=c.fixed?0:Math.round((1-(c.net*df)/c.list)*100);
+    const unit=c.manual?"—":money(c.net*ldf), line=c.manual?"manual quote":money(c.lineNet*ldf);
+    return [String(i+1),p.name,"SLS · Nylon 12 · "+clr+" · "+finishLabel(p)+(dpct>0?"  ·  −"+dpct+"% off":"")+(c.manual?"  ·  quote pending":""),String(p.qty),unit,line];});
   doc.autoTable({startY:y,head:[["#","Item","Description","Qty","Unit","Line"]],body:rows,
     theme:"grid",styles:{fontSize:9.5,cellPadding:6,textColor:INK,lineColor:[210,216,226]},
     headStyles:{fillColor:NAVY,textColor:[255,255,255],fontStyle:"bold"},
