@@ -145,9 +145,9 @@
 
   <h2>1 · Upload your model</h2>
   <div class="drop" id="drop">
-    <div class="big">⬆ Drop your .STL file here</div>
-    <div class="small">or click to browse · add as many parts as you like · your files stay private (measured in your browser)</div>
-    <input id="stlInput" type="file" accept=".stl" multiple style="display:none">
+    <div class="big">⬆ Drop your .STL or .STP file here</div>
+    <div class="small">STL or STEP (.stp/.step) · click to browse · add as many parts as you like · your files stay private (measured in your browser)</div>
+    <input id="stlInput" type="file" accept=".stl,.stp,.step,.STL,.STP,.STEP" multiple style="display:none">
   </div>
 
   <div class="bulkbar" id="bulkBar">
@@ -373,6 +373,7 @@ function nextValueTier(g){for(const t of VALUE_BREAKS)if(t.v>g)return t;return n
 function lineCalc(p){
   const ov=(p&&p.override!=null&&+p.override>0)?+p.override:0;   // rep per-unit override → final price, no discounts
   if(ov>0){return {list:ov,qp:0,net:ov,lineList:ov*p.qty,lineNet:ov*p.qty,fixed:true};}
+  if(p&&p.manual){return {list:0,qp:0,net:0,lineList:0,lineNet:0,fixed:true,manual:true};}   // STEP needing manual quote
   const list=unitPrice(p);const qp=qtyDiscPct(p.qty);const net=list*(1-qp/100);
   return {list,qp,net,lineList:list*p.qty,lineNet:net*p.qty,fixed:false};}
 const FINISH = {  // finishing add-ons (stackable). Bead blast is standard & included.
@@ -468,6 +469,38 @@ function parseAscii(buf){const txt=new TextDecoder().decode(new Uint8Array(buf))
   const re=/vertex\s+(-?[\d.eE+]+)\s+(-?[\d.eE+]+)\s+(-?[\d.eE+]+)/g;let m;
   while((m=re.exec(txt)))v.push([+m[1],+m[2],+m[3]]);
   const t=[];for(let i=0;i+2<v.length;i+=3)t.push([...v[i],...v[i+1],...v[i+2]]);return acc(t);}
+/* ---- STEP (.stp/.step) support: tessellate with occt-import-js (OpenCASCADE WASM),
+   then reuse acc() for the exact same volume/bbox/area/pricing/preview pipeline as STL. ---- */
+const OCCT_CDN="https://cdn.jsdelivr.net/npm/occt-import-js@0.0.23/dist/";
+let _occtPromise=null;
+function loadOCCT(){
+  if(_occtPromise) return _occtPromise;
+  _occtPromise=new Promise((resolve,reject)=>{
+    if(window.occtimportjs){ window.occtimportjs({locateFile:f=>OCCT_CDN+f}).then(resolve).catch(reject); return; }
+    const s=document.createElement("script"); s.src=OCCT_CDN+"occt-import-js.js";
+    s.onload=()=>{ try{ window.occtimportjs({locateFile:f=>OCCT_CDN+f}).then(resolve).catch(reject); }catch(e){ reject(e); } };
+    s.onerror=()=>reject(new Error("Could not load the STEP engine"));
+    document.head.appendChild(s);
+  });
+  return _occtPromise;
+}
+async function stepToGeom(buf){
+  const occt=await loadOCCT();
+  const res=occt.ReadStepFile(new Uint8Array(buf), null);
+  if(!res || !res.success || !res.meshes || !res.meshes.length) throw new Error("no geometry");
+  const tris=[];
+  for(const mesh of res.meshes){
+    const pos=mesh.attributes && mesh.attributes.position && mesh.attributes.position.array;
+    const idx=mesh.index && mesh.index.array;
+    if(!pos || !idx) continue;
+    for(let k=0;k+2<idx.length;k+=3){
+      const a=idx[k]*3, b=idx[k+1]*3, c=idx[k+2]*3;
+      tris.push([pos[a],pos[a+1],pos[a+2], pos[b],pos[b+1],pos[b+2], pos[c],pos[c+1],pos[c+2]]);
+    }
+  }
+  if(!tris.length) throw new Error("empty mesh");
+  return acc(tris);
+}
 
 /* ---- state ---- */
 let parts=[], pid=0;
@@ -560,14 +593,33 @@ function createViewer(part){
 }
 function disposeViewer(id){const v=viewers[id];if(!v)return;try{v.renderer.dispose();if(v.renderer.forceContextLoss)v.renderer.forceContextLoss();}catch(e){}delete viewers[id];}
 
+function partFromGeom(file,buf,r){
+  return {id:++pid,name:file.name.replace(/\.(stl|stp|step)$/i,""),fileName:file.name,fileBuf:buf,
+    x:+r.x.toFixed(1),y:+r.y.toFixed(1),z:+r.z.toFixed(1),vol:+(r.volMM3/1000).toFixed(2),
+    qty:1,color:"natural",dye:false,vs:false,geo:r.pos,area:r.areaMM2,thumb:renderThumb(r.pos)};
+}
 function handleFiles(files){[...files].forEach(file=>{
+  const ext=(file.name.split(".").pop()||"").toLowerCase();
   const rd=new FileReader();
-  rd.onload=e=>{try{const r=parseSTL(e.target.result);if(!r.count)throw 0;
-    const part={id:++pid,name:file.name.replace(/\.stl$/i,""),fileName:file.name,fileBuf:e.target.result,
-      x:+r.x.toFixed(1),y:+r.y.toFixed(1),z:+r.z.toFixed(1),vol:+(r.volMM3/1000).toFixed(2),
-      qty:1,color:"natural",dye:false,vs:false,geo:r.pos,area:r.areaMM2,thumb:renderThumb(r.pos)};
-    parts.push(part); createViewer(part);
-    render();}catch(err){alert("Couldn't read "+file.name+". Please check it's a valid STL.");}};
+  rd.onload=async e=>{
+    const buf=e.target.result;
+    if(ext==="stp"||ext==="step"){
+      try{
+        const r=await stepToGeom(buf); if(!r.count) throw 0;
+        const part=partFromGeom(file,buf,r); parts.push(part); createViewer(part); render();
+      }catch(err){
+        // Fallback: add as a manual-quote line (still attaches; our team prices it, or a rep sets an override).
+        parts.push({id:++pid,name:file.name.replace(/\.(stp|step)$/i,""),fileName:file.name,fileBuf:buf,
+          x:0,y:0,z:0,vol:0,qty:1,color:"natural",dye:false,vs:false,geo:null,area:0,thumb:null,manual:true});
+        render();
+        alert("We couldn't auto-measure "+file.name+" (complex STEP). It's added as a manual-quote item — our team will price it, and card checkout is paused until it's priced.");
+      }
+      return;
+    }
+    try{const r=parseSTL(buf);if(!r.count)throw 0;
+      const part=partFromGeom(file,buf,r); parts.push(part); createViewer(part); render();
+    }catch(err){alert("Couldn't read "+file.name+". Please check it's a valid STL or STEP file.");}
+  };
   rd.readAsArrayBuffer(file);});}
 
 /* ---- render ---- */
@@ -576,7 +628,7 @@ function render(){
   const ul=document.getElementById("parts");ul.innerHTML="";
   const _t0=orderTotals(); const _valPct=_t0.valPct||0, _addlPct=_t0.addlPct||0; const _df=(1-_valPct/100)*(1-_addlPct/100);
   parts.forEach((p,i)=>{
-    const c=lineCalc(p),checks=partChecks(p);
+    const c=lineCalc(p),isMan=!!c.manual,checks=isMan?[]:partChecks(p);
     const nt=nextQtyTier(p.qty);
     const _df2=c.fixed?1:_df;
     let nudge="";
@@ -588,13 +640,13 @@ function render(){
         <div style="display:flex;gap:12px;align-items:flex-start;min-width:0">
           ${window.THREE&&p.geo?`<div class="viewwrap"><div class="viewslot" data-view="${p.id}" title="Drag to rotate"></div><div class="viewhint">↻ drag to rotate</div></div>`:(p.thumb?`<img class="thumb" src="${p.thumb}" alt="3D preview of ${esc(p.name)}">`:"")}
           <div style="min-width:0"><div class="nm">${esc(p.name)}</div>
-          <div class="dims">${p.x}×${p.y}×${p.z} mm · ${p.vol} cm³ · qty <b>${p.qty}</b>${c.fixed?` · <span class="save">custom $</span>`:`${c.qp>0?` · <span class="save">${c.qp}% qty</span>`:""}${_valPct>0?` · <span class="save">${_valPct}% order</span>`:""}${_addlPct>0?` · <span class="save">${_addlPct}% add&#39;l</span>`:""}`}</div>
-          <div class="dims" style="opacity:.7;margin-top:1px">${(p.x/25.4).toFixed(2)}×${(p.y/25.4).toFixed(2)}×${(p.z/25.4).toFixed(2)} in · ${(p.vol*0.0610237).toFixed(2)} in³</div></div>
+          <div class="dims">${isMan?`STEP file · qty <b>${p.qty}</b> · <span class="save">manual quote</span>${(p.override>0)?` · <span class="save">custom $</span>`:""}`:`${p.x}×${p.y}×${p.z} mm · ${p.vol} cm³ · qty <b>${p.qty}</b>${c.fixed?` · <span class="save">custom $</span>`:`${c.qp>0?` · <span class="save">${c.qp}% qty</span>`:""}${_valPct>0?` · <span class="save">${_valPct}% order</span>`:""}${_addlPct>0?` · <span class="save">${_addlPct}% add&#39;l</span>`:""}`}`}</div>
+          ${isMan?`<div class="dims" style="opacity:.7;margin-top:1px">Awaiting manual measurement — STEP attached for review</div>`:`<div class="dims" style="opacity:.7;margin-top:1px">${(p.x/25.4).toFixed(2)}×${(p.y/25.4).toFixed(2)}×${(p.z/25.4).toFixed(2)} in · ${(p.vol*0.0610237).toFixed(2)} in³</div>`}</div>
         </div>
         <div style="display:flex;align-items:center;gap:12px">
           <div style="text-align:right">
-            <div class="price">${money(c.lineNet*_df2)}</div>
-            <div class="each">${(!c.fixed&&(c.qp>0||_df<0.999))?`<span class="was">${money(c.list)}</span> `:""}${money(c.net*_df2)} <span class="ea">/ea</span></div>
+            <div class="price">${isMan?`<span style="font-size:15px;color:#8a5a00">Quote pending</span>`:money(c.lineNet*_df2)}</div>
+            <div class="each">${isMan?`our team will price this`:`${(!c.fixed&&(c.qp>0||_df<0.999))?`<span class="was">${money(c.list)}</span> `:""}${money(c.net*_df2)} <span class="ea">/ea</span>`}</div>
           </div>
           <button class="rm" data-del="${p.id}" title="Remove">×</button></div>
       </div>
@@ -673,8 +725,12 @@ function render(){
   lines+=`<div class="oline"><span>Sales tax</span><b>calculated at checkout</b></div>`;
   lines+=`<div class="oline"><span>⏱ Est. lead time</span><b>${orderLeadDays()} business days</b></div>`;
   if(t.matCert>0) lines+=`<div class="oline"><span>Material certification</span><b>${money(t.matCert)}</b></div>`;
-  lines+=`<div class="oline tot"><span>Estimated total</span><b>${money(t.total)}</b></div>`;
+  const hasUnpriced=parts.some(p=>p.manual&&!(p.override>0));
+  if(hasUnpriced) lines+=`<div class="oline"><span style="color:#8a5a00">Manual-quote item(s)</span><b style="color:#8a5a00">priced by our team</b></div>`;
+  lines+=`<div class="oline tot"><span>Estimated total${hasUnpriced?" (excl. manual items)":""}</span><b>${money(t.total)}</b></div>`;
   document.getElementById("orderLines").innerHTML=lines;
+  const _pay=document.getElementById("payBtn");
+  if(_pay){ _pay.disabled=hasUnpriced; _pay.style.opacity=hasUnpriced?"0.5":""; _pay.title=hasUnpriced?"An item needs a manual quote — use Email quote, Submit PO, or request a payment link":""; }
   const pcEl=document.getElementById("perCcReadout"); if(pcEl) pcEl.textContent="$"+t.perCc.toFixed(2)+" / cm³"+(t.addlPct>0?("  ·  addl "+t.addlPct+"% (−"+money(t.addlDisc)+")"):"")+"  ·  vol "+Math.round(t.totalVol)+" cm³";
   const ov=nextValueTier(t.gross),on=document.getElementById("orderNudge");
   if(ov&&parts.length){on.style.display="block";
@@ -1000,7 +1056,7 @@ async function ensureQuoteSaved(){
   try{
     const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({token:INTERNAL_TOKEN,
-        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,drawingName:p.drawingName||"",thumb:"",override:(p.override!=null&&+p.override>0)?+p.override:null})),
+        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,drawingName:p.drawingName||"",thumb:"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
         matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
     const d=await r.json().catch(()=>({}));
@@ -1027,7 +1083,7 @@ async function startPayment(){
     const r=await fetch(CHECKOUT_URL,{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({
         orderNo,
-        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,dye:p.dye,vs:p.vs,color:p.color})),
+        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,dye:p.dye,vs:p.vs,color:p.color,manual:!!p.manual})),
         name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone"),
         region:(document.getElementById("sRegion")||{}).value||"us",
         zip:v("sZip"),
@@ -1072,7 +1128,7 @@ async function submitPO(approved){
     const r=await fetch("/.netlify/functions/submit-po",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({
         orderNo, po, approved:!!approved,
-        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,dye:p.dye,vs:p.vs,color:p.color})),
+        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,dye:p.dye,vs:p.vs,color:p.color,manual:!!p.manual})),
         name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone"),
         region:(document.getElementById("sRegion")||{}).value||"us",
         zip:v("sZip"), shipSpeed:shipSpeed(),
@@ -1143,7 +1199,7 @@ async function saveQuote(){
   try{
     const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({token:INTERNAL_TOKEN,id,
-        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,drawingName:p.drawingName||"",thumb:p.thumb||"",override:(p.override!=null&&+p.override>0)?+p.override:null})),
+        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,drawingName:p.drawingName||"",thumb:p.thumb||"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
         matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
     const data=await r.json().catch(()=>({}));
@@ -1180,7 +1236,7 @@ async function loadQuote(id){
     set("sRegion",q.region);set("sZip",q.zip);set("sSpeed",q.shipSpeed);
     if(document.getElementById("matCert"))document.getElementById("matCert").checked=!!q.matCert;
     parts.length=0;
-    (q.parts||[]).forEach(p=>{parts.push({id:++pid,name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color||"natural",dye:!!p.dye,vs:!!p.vs,drawingName:p.drawingName||"",override:(p.override!=null&&+p.override>0)?+p.override:null,geo:null,area:0,thumb:null,fileBuf:null});});
+    (q.parts||[]).forEach(p=>{parts.push({id:++pid,name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color||"natural",dye:!!p.dye,vs:!!p.vs,drawingName:p.drawingName||"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual,geo:null,area:0,thumb:null,fileBuf:null});});
     toggleShip();render();
     const b=document.getElementById("payBanner");
     if(b){b.style.display="block";b.style.background="#eef4ff";b.style.border="1px solid #b9cdf0";b.style.color="#1b2a4a";

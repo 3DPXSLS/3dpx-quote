@@ -115,6 +115,10 @@ export default async (req) => {
       if (q && Array.isArray(q.parts)) q.parts.forEach((qp, i) => { if (parts[i] && qp && +qp.override > 0) parts[i].ov = +qp.override; });
     } catch (e) { /* keep fallback */ }
   }
+  // Block card checkout for any item that can't be auto-priced (manual STEP / zero geometry) unless a rep set an override.
+  const needsManual = parts.some(p => (p.manual || !(+p.vol > 0) || !(+p.x > 0 && +p.y > 0 && +p.z > 0)) && !(+p.ov > 0));
+  if (needsManual) return json({ error: "This order includes an item that needs a manual quote — please use Submit PO or email sales@3dpx.com, and we'll send a payment link." }, 400);
+
   const amount = Math.round(orderTotal(parts, body.region, !!body.matCert, speed, body.zip, addlDisc) * 100);
   if (amount < 50) return json({ error: "Order total too low." }, 400);
 

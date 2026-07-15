@@ -29,6 +29,7 @@ export default async (req) => {
       drawingName: p.drawingName ? String(p.drawingName).slice(0,120) : "",
       thumb: (p.thumb && String(p.thumb).startsWith("data:image")) ? String(p.thumb).slice(0, 400000) : "",
       override: (+p.override > 0) ? +p.override : null,
+      manual: !!p.manual,
     })),
     region: String(body.region || "us"),
     zip: String(body.zip || "").slice(0,12),
