@@ -1060,8 +1060,6 @@ async function uploadOrderFiles(orderNo){
   for(let i=0;i<parts.length;i++){const p=parts[i];
     if(p.fileBuf){ if(p.fileBuf.byteLength>6*1024*1024){missed.push((p.fileName||p.name)+" — file over 6 MB");}
       else if(!await putFile(orderNo,i,p.fileName||(p.name+".stl"),p.fileBuf)) missed.push(p.fileName||(p.name+".stl")); }
-    if(p.geo && /\.(stp|step)$/i.test(p.fileName||"")){   // STEP → also attach a derived .stl for production
-      try{ const stl=geoToSTL(p.geo); if(stl && stl.byteLength<=6*1024*1024) await putFile(orderNo,"stl"+i,(p.name||("part"+(i+1)))+".stl",stl); }catch(e){} }
     if(p.drawingBuf){ if(p.drawingBuf.byteLength>6*1024*1024){missed.push((p.drawingName||p.name)+" — drawing over 6 MB");}
       else if(!await putFile(orderNo,"draw"+i,"drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf")),p.drawingBuf)) missed.push("drawing "+(i+1)); }
   }
