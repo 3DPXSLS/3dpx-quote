@@ -743,7 +743,7 @@ function render(){
   else if(t.account) lines+=`<div class="oline"><span>Shipping · your carrier account${(document.getElementById("sCarrier")||{}).value?` (${(document.getElementById("sCarrier")||{}).value})`:""}</span><b style="color:#1e9e6a">Billed to you</b></div>`;
   else lines+=`<div class="oline"><span>Est. shipping · ${SHIP_SPEEDS[t.speed].label}${t.billableLb>0?` · ~${t.billableLb.toFixed(1)} lb`:""}${t.zone?` · zone ${t.zone}`:""}</span><b>${t.shipping>0?money(t.shipping):"quoted separately"}</b></div>`;
   lines+=`<div class="oline"><span>Sales tax</span><b>calculated at checkout</b></div>`;
-  lines+=`<div class="oline"><span>⏱ Est. lead time</span><b>${orderLeadDays()} business days</b></div>`;
+  lines+=REP_DUE?`<div class="oline"><span>⏱ Due date</span><b>${new Date(REP_DUE+"T00:00:00").toLocaleDateString("en-US")}</b></div>`:`<div class="oline"><span>⏱ Est. lead time</span><b>${orderLeadDays()} business days</b></div>`;
   if(t.matCert>0) lines+=`<div class="oline"><span>Material certification</span><b>${money(t.matCert)}</b></div>`;
   const hasUnpriced=parts.some(p=>p.manual&&!(p.override>0));
   if(hasUnpriced) lines+=`<div class="oline"><span style="color:#8a5a00">Manual-quote item(s)</span><b style="color:#8a5a00">priced by our team</b></div>`;
@@ -1273,7 +1273,7 @@ async function loadQuote(id){
 if(INTERNAL){
   const rt=document.getElementById("repTools");if(rt)rt.style.display="";
   const ad=document.getElementById("addlDisc");if(ad)ad.addEventListener("input",()=>{ADDL_DISC=Math.max(0,Math.min(100,parseFloat(ad.value)||0));render();});
-  const rdue=document.getElementById("repDue");if(rdue)rdue.addEventListener("change",()=>{REP_DUE=rdue.value||"";});
+  const rdue=document.getElementById("repDue");if(rdue)rdue.addEventListener("change",()=>{REP_DUE=rdue.value||"";render();});
   const sb=document.getElementById("saveQuoteBtn");if(sb){sb.style.display="";sb.onclick=saveQuote;}
   const apb=document.getElementById("approvedBtn");if(apb){apb.style.display="";apb.onclick=()=>submitPO(true);}
   const tb=document.getElementById("travBtn");if(tb){tb.style.display="";tb.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildTravelerPDF(genOrderNo(),{});if(d)d.save("traveler-"+genOrderNo()+".pdf");};}
