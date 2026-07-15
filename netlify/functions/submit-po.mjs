@@ -114,7 +114,8 @@ export default async (req) => {
   const parts = Array.isArray(body.parts) ? body.parts : [];
   if (!parts.length) return json({ error: "No parts in order." }, 400);
   const po = (body.po || "").toString().trim();
-  if (!po) return json({ error: "A PO number is required." }, 400);
+  const approved = !!body.approved;   // internal "approved in writing" order — no card, PO optional
+  if (!po && !approved) return json({ error: "A PO number is required." }, 400);
 
   const token = process.env.SMARTSHEET_TOKEN;
   if (!token) return json({ error: "PO ordering isn't enabled yet." }, 503);
@@ -141,9 +142,11 @@ export default async (req) => {
   // Keep the WEB- order number as the identifier (like card web orders), tagged with the customer PO.
   const webNo = (body.orderNo && /^WEB-[0-9]{8}-[0-9]{3,5}$/.test(body.orderNo)) ? body.orderNo
     : ("WEB-" + new Date().toISOString().slice(0,10).replace(/-/g,"") + "-" + Math.floor(1000+Math.random()*9000));
-  const orderIdent = webNo + " (PO " + po + ")";
-  const notes = ("*** WEB PO / INVOICE ORDER — UNPAID — verify credit & confirm price before production *** | Customer PO: "
-    + po + " | " + summary + " | " + shipMethod + (body.matCert?" | Material cert":"")).slice(0, 495);
+  const orderIdent = webNo + (po ? (" (PO " + po + ")") : (approved ? " (APPROVED)" : ""));
+  const notesPrefix = approved
+    ? ("*** WEB APPROVED ORDER — no card — written approval on file; invoice on terms ***" + (po ? (" | Customer PO: " + po) : ""))
+    : ("*** WEB PO / INVOICE ORDER — UNPAID — verify credit & confirm price before production *** | Customer PO: " + po);
+  const notes = (notesPrefix + " | " + summary + " | " + shipMethod + (body.matCert?" | Material cert":"")).slice(0, 495);
 
   const contactVal = (body.name || "") + (body.email ? " <" + body.email + ">" : "");
   const due = addBusinessDays(new Date(), leadDaysCalc(parts)).toISOString().slice(0,10);

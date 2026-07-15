@@ -240,6 +240,7 @@
         <button class="btn ghost" id="dlBtn">Download PDF</button>
         <button class="btn orange" id="payBtn" style="display:none">Order &amp; pay</button>
         <button class="btn ghost" id="poBtn" style="display:none">Submit PO (invoice)</button>
+        <button class="btn ghost" id="approvedBtn" style="display:none" title="Internal: create the order now (written approval on file) — no card, no PO required">Create order — approved (no payment)</button>
         <button class="btn ghost" id="travBtn" style="display:none" title="Local preview of the production traveler">Preview traveler</button>
         <button class="btn ghost" id="packBtn" style="display:none" title="Local preview of the packing slip">Preview pack slip</button>
         <button class="btn ghost" id="quoteBtn" style="display:none" title="Local preview of the quote">Preview quote</button>
@@ -973,25 +974,51 @@ async function uploadQuote(orderNo,opts){
   }catch(e){}
 }
 let LOADED_QUOTE_ID=null;
+/* Retrying file upload (fixes occasional dropped STL). Returns true on success. */
+async function putFile(orderNo,i,name,buf){
+  for(let a=0;a<3;a++){ try{ const r=await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(orderNo)+"&i="+encodeURIComponent(i)+"&name="+encodeURIComponent(name),{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:buf}); if(r.ok) return true; }catch(e){}
+    await new Promise(res=>setTimeout(res,400*(a+1))); }
+  return false;
+}
+/* Uploads each part's STL + drawing to the order prefix; returns any that failed/were too big. */
+async function uploadOrderFiles(orderNo){
+  const missed=[];
+  for(let i=0;i<parts.length;i++){const p=parts[i];
+    if(p.fileBuf){ if(p.fileBuf.byteLength>6*1024*1024){missed.push((p.fileName||p.name)+" — STL over 6 MB");}
+      else if(!await putFile(orderNo,i,p.fileName||(p.name+".stl"),p.fileBuf)) missed.push(p.fileName||(p.name+".stl")); }
+    if(p.drawingBuf){ if(p.drawingBuf.byteLength>6*1024*1024){missed.push((p.drawingName||p.name)+" — drawing over 6 MB");}
+      else if(!await putFile(orderNo,"draw"+i,"drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf")),p.drawingBuf)) missed.push("drawing "+(i+1)); }
+  }
+  return missed;
+}
+/* Rep orders carry the per-item override + additional discount to the server through a saved quote
+   (the server reads pricing authoritatively from the quote, never from the browser). Auto-saves one
+   silently if the rep hasn't already, so internal Order&pay / PO / approved orders honor the override. */
+async function ensureQuoteSaved(){
+  if(LOADED_QUOTE_ID) return LOADED_QUOTE_ID;
+  if(!INTERNAL || !parts.length) return "";
+  try{
+    const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({token:INTERNAL_TOKEN,
+        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,drawingName:p.drawingName||"",thumb:"",override:(p.override!=null&&+p.override>0)?+p.override:null})),
+        region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
+        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
+    const d=await r.json().catch(()=>({}));
+    if(d.ok){LOADED_QUOTE_ID=d.id;return d.id;}
+  }catch(e){}
+  return "";
+}
 async function startPayment(){
   if(!parts.length) return;
   if(!validEmail()) return;
   const btn=document.getElementById("payBtn"), orig=btn.textContent;
   btn.disabled=true;
+  await ensureQuoteSaved();
   const orderNo=genOrderNo();
   if(LOADED_QUOTE_ID){try{await fetch("/.netlify/functions/promote-quote",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({orderNo,id:LOADED_QUOTE_ID})});}catch(e){}}
-  // upload STL file(s) first (best-effort; up to ~6MB each, else it falls back to email)
   btn.textContent="Uploading files…";
-  for(let i=0;i<parts.length;i++){const p=parts[i];
-    if(p.fileBuf && p.fileBuf.byteLength<=6*1024*1024){
-      try{ await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(orderNo)+"&i="+i+"&name="+encodeURIComponent(p.fileName||(p.name+".stl")),
-        {method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.fileBuf}); }catch(e){}
-    }
-    if(p.drawingBuf && p.drawingBuf.byteLength<=6*1024*1024){
-      try{ await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(orderNo)+"&i=draw"+i+"&name="+encodeURIComponent("drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf"))),
-        {method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.drawingBuf}); }catch(e){}
-    }
-  }
+  const _missed=await uploadOrderFiles(orderNo);
+  if(_missed.length&&INTERNAL) alert("Some files didn't upload — attach manually in Smartsheet:\n• "+_missed.join("\n• "));
   await uploadTraveler(orderNo,{});
   await uploadPackingSlip(orderNo,{});
   await uploadQuote(orderNo,{});
@@ -1020,39 +1047,31 @@ async function startPayment(){
   btn.textContent=orig; btn.disabled=false;
 }
 /* ---- Order by PO (invoice, no card) ---- */
-async function submitPO(){
+async function submitPO(approved){
   if(!parts.length) return;
   if(!validEmail()) return;
   const po=(v("cPO")||"").trim();
-  if(!po){alert("Please enter your PO number to submit a PO order.");document.getElementById("cPO").focus();return;}
-  const btn=document.getElementById("poBtn"), orig=btn.textContent; btn.disabled=true;
+  if(!approved && !po){alert("Please enter your PO number to submit a PO order.");document.getElementById("cPO").focus();return;}
+  const btn=document.getElementById(approved?"approvedBtn":"poBtn"), orig=btn.textContent; btn.disabled=true;
+  await ensureQuoteSaved();
   const orderNo=genOrderNo();
   if(LOADED_QUOTE_ID){try{await fetch("/.netlify/functions/promote-quote",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({orderNo,id:LOADED_QUOTE_ID})});}catch(e){}}
   btn.textContent="Uploading files…";
-  for(let i=0;i<parts.length;i++){const p=parts[i];
-    if(p.fileBuf && p.fileBuf.byteLength<=6*1024*1024){
-      try{ await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(orderNo)+"&i="+i+"&name="+encodeURIComponent(p.fileName||(p.name+".stl")),
-        {method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.fileBuf}); }catch(e){}
-    }
-    if(p.drawingBuf && p.drawingBuf.byteLength<=6*1024*1024){
-      try{ await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(orderNo)+"&i=draw"+i+"&name="+encodeURIComponent("drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf"))),
-        {method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.drawingBuf}); }catch(e){}
-    }
-  }
+  const _missed=await uploadOrderFiles(orderNo);
+  if(_missed.length&&INTERNAL) alert("Some files didn't upload — attach manually in Smartsheet:\n• "+_missed.join("\n• "));
   const pf=document.getElementById("poFile");
   if(pf&&pf.files&&pf.files[0]&&pf.files[0].size<=6*1024*1024){
     try{ const buf=await pf.files[0].arrayBuffer();
-      await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(orderNo)+"&i=po&name="+encodeURIComponent(pf.files[0].name||("PO-"+po+".pdf")),
-        {method:"POST",headers:{"Content-Type":"application/octet-stream"},body:buf}); }catch(e){}
+      await putFile(orderNo,"po",pf.files[0].name||("PO-"+(po||"approved")+".pdf"),buf); }catch(e){}
   }
   await uploadTraveler(orderNo,{po});
   await uploadPackingSlip(orderNo,{po});
   await uploadQuote(orderNo,{po});
-  btn.textContent="Submitting…";
+  btn.textContent=approved?"Creating order…":"Submitting…";
   try{
     const r=await fetch("/.netlify/functions/submit-po",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({
-        orderNo, po,
+        orderNo, po, approved:!!approved,
         parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,dye:p.dye,vs:p.vs,color:p.color})),
         name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone"),
         region:(document.getElementById("sRegion")||{}).value||"us",
@@ -1064,13 +1083,15 @@ async function submitPO(){
     if(data.ok){
       const b=document.getElementById("payBanner");
       b.style.display="block";b.style.background="#e8f7ef";b.style.border="1px solid #a9e0c3";b.style.color="#1e7d52";
-      b.innerHTML="✓ <b>PO received — thank you!</b> Your order (PO "+esc(po)+") is in our queue for review. We'll confirm and email an invoice to "+esc(v("cEmail"))+". No card was charged.";
+      b.innerHTML=approved
+        ? "✓ <b>Approved order created.</b> Order "+esc(orderNo)+(po?(" (PO "+esc(po)+")"):"")+" is in the production queue — no card charged, invoice to follow."
+        : "✓ <b>PO received — thank you!</b> Your order (PO "+esc(po)+") is in our queue for review. We'll confirm and email an invoice to "+esc(v("cEmail"))+". No card was charged.";
       try{window.scrollTo({top:0,behavior:"smooth"});}catch(e){}
-      btn.textContent="PO submitted ✓"; return;
+      btn.textContent=approved?"Order created ✓":"PO submitted ✓"; return;
     }
-    alert(data.error||"Couldn't submit your PO. Please download your quote and email it with your PO to sales@3dpx.com.");
+    alert(data.error||"Couldn't submit the order. Please download the quote and email it to sales@3dpx.com.");
   }catch(e){
-    alert("PO ordering isn't available right now. Please download your quote and email it with your PO to sales@3dpx.com.");
+    alert("Ordering isn't available right now. Please download the quote and email it to sales@3dpx.com.");
   }
   btn.textContent=orig; btn.disabled=false;
 }
@@ -1079,7 +1100,7 @@ if(PAYMENTS_ENABLED){
 } else {
   const w=document.getElementById("orderWayPay"); if(w) w.style.display="none";
 }
-(function(){const pob=document.getElementById("poBtn"); if(pob){pob.style.display=""; pob.onclick=submitPO;}})();
+(function(){const pob=document.getElementById("poBtn"); if(pob){pob.style.display=""; pob.onclick=()=>submitPO(false);}})();
 /* Local-only "Preview traveler" button (shows when opened from file:// or localhost) so the traveler can be tested offline. */
 (function(){const isLocal=(location.protocol==="file:"||location.hostname==="localhost"||location.hostname==="127.0.0.1"||location.hostname==="");
   const tb=document.getElementById("travBtn");
@@ -1176,6 +1197,7 @@ if(INTERNAL){
   const rt=document.getElementById("repTools");if(rt)rt.style.display="";
   const ad=document.getElementById("addlDisc");if(ad)ad.addEventListener("input",()=>{ADDL_DISC=Math.max(0,Math.min(100,parseFloat(ad.value)||0));render();});
   const sb=document.getElementById("saveQuoteBtn");if(sb){sb.style.display="";sb.onclick=saveQuote;}
+  const apb=document.getElementById("approvedBtn");if(apb){apb.style.display="";apb.onclick=()=>submitPO(true);}
   const tb=document.getElementById("travBtn");if(tb){tb.style.display="";tb.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildTravelerPDF(genOrderNo(),{});if(d)d.save("traveler-"+genOrderNo()+".pdf");};}
   const pk=document.getElementById("packBtn");if(pk){pk.style.display="";pk.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildPackingSlipPDF(genOrderNo(),{});if(d)d.save("packing-slip-"+genOrderNo()+".pdf");};}
   const qbn=document.getElementById("quoteBtn");if(qbn){qbn.style.display="";qbn.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildQuotePDF(genOrderNo(),{});if(d)d.save("quote-"+genOrderNo()+".pdf");};}
