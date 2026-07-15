@@ -152,7 +152,7 @@ export default async (req) => {
   const notes = (notesPrefix + " | " + summary + " | " + shipMethod + (body.matCert?" | Material cert":"")).slice(0, 495);
 
   const contactVal = (body.name || "") + (body.email ? " <" + body.email + ">" : "");
-  const due = addBusinessDays(new Date(), leadDaysCalc(parts)).toISOString().slice(0,10);
+  const due = /^\d{4}-\d{2}-\d{2}$/.test(String(body.dueDate||"")) ? body.dueDate : addBusinessDays(new Date(), leadDaysCalc(parts)).toISOString().slice(0,10);
 
   const cells = [
     { columnId: COL.orderStatus, value: "Pre Sale", strict: false },

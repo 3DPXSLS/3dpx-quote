@@ -53,7 +53,7 @@ export default async (req) => {
   const taxAmt = (s.total_details && s.total_details.amount_tax != null ? s.total_details.amount_tax : 0) / 100;
   const price = subtotal;
   const contactVal = (m.customer_name || "") + (m.customer_email ? " <" + m.customer_email + ">" : "");
-  const due = addBusinessDays(new Date(), parseInt(m.lead_days)||3).toISOString().slice(0,10);
+  const due = /^\d{4}-\d{2}-\d{2}$/.test(m.due_date||"") ? m.due_date : addBusinessDays(new Date(), parseInt(m.lead_days)||3).toISOString().slice(0,10);
   const notesWithTax = taxAmt > 0 ? ((m.notes || "") + " | Tax collected: $" + taxAmt.toFixed(2)).slice(0,495) : (m.notes || "");
 
   const cells = [

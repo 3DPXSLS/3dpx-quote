@@ -164,6 +164,7 @@ export default async (req) => {
   f.append("metadata[region]", (body.region||"us"));
   f.append("metadata[source]", (body.source === "internal" ? "internal" : "web"));
   if (body.quoteId) f.append("metadata[quote_id]", String(body.quoteId).slice(0,20));
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(body.dueDate || ""))) f.append("metadata[due_date]", body.dueDate);
   f.append("metadata[ship_speed]", speed);
   f.append("metadata[ship_method]", shipMethodLabel.slice(0,200));
   if (speed === "account") {

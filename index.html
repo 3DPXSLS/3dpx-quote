@@ -217,6 +217,7 @@
       <div style="font-weight:700;color:#1b2a4a;margin-bottom:8px">Rep tools <span style="font-weight:500;color:#8a95a8;font-size:12px">· internal only</span></div>
       <div class="contact" style="margin:0">
         <div><label>Additional discount (% off order)</label><input id="addlDisc" type="number" min="0" max="100" step="0.5" placeholder="0"></div>
+        <div><label>Custom due date (optional)</label><input id="repDue" type="date"></div>
         <div><label>Material price check</label><div id="perCcReadout" style="padding:9px 0;font-weight:700;color:#1b2a4a">$0.00 / cm³</div></div>
       </div>
       <div style="font-size:11px;color:#8a95a8;margin-top:6px">$/cm³ = discounted parts value ÷ total printed volume. The additional discount reduces the customer's total and the amount charged. Visible only in the internal tool.</div>
@@ -418,6 +419,7 @@ function unitPrice(p){
   return u;
 }
 let ADDL_DISC=0;  // rep-set additional discount ($ off), internal only
+let REP_DUE="";   // rep-set custom due date (YYYY-MM-DD), internal only; blank = auto from lead time
 function orderTotals(){
   // discGross/postQty = discountable (normal) lines only; fixedTot = rep-overridden lines (no discounts)
   let discGross=0, postQty=0, fixedTot=0, hasNormal=false;
@@ -892,7 +894,7 @@ function buildTravelerPDF(orderNo,opts){
   const doc=new JS({unit:"pt",format:"letter"}); if(typeof doc.autoTable!=="function") return null;
   const NAVY=[27,42,74],ORANGE=[242,106,33],HEAD=[238,242,248],INK=[27,35,48],GREY=[90,102,120];
   const W=doc.internal.pageSize.getWidth(), M=40, CW=W-2*M;
-  const email=v("cEmail")||"—"; const orderDate=new Date().toLocaleDateString("en-US"); const due=estDueDate(orderLeadDays());
+  const email=v("cEmail")||"—"; const orderDate=new Date().toLocaleDateString("en-US"); const due=REP_DUE?new Date(REP_DUE+"T00:00:00").toLocaleDateString("en-US"):estDueDate(orderLeadDays());
   const gen=new Date().toLocaleString("en-US",{year:"numeric",month:"2-digit",day:"2-digit",hour:"numeric",minute:"2-digit"});
   const type=opts.po?("Web order (PO "+opts.po+")"):"Web order (card)";
   const notesTxt="Bead blast standard. "+(opts.po?("PO "+opts.po+" — verify credit & confirm price before production. "):"")+(parts.some(p=>p.dye)?"Dyed parts per Color column. ":"")+(parts.some(p=>p.vs)?"Vapor smoothing required. ":"");
@@ -1077,7 +1079,7 @@ async function ensureQuoteSaved(){
       body:JSON.stringify({token:INTERNAL_TOKEN,
         parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,drawingName:p.drawingName||"",thumb:"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
-        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
+        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,dueDate:REP_DUE||"",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
     const d=await r.json().catch(()=>({}));
     if(d.ok){LOADED_QUOTE_ID=d.id;return d.id;}
   }catch(e){}
@@ -1111,7 +1113,7 @@ async function startPayment(){
         shipAccount:(shipSpeed()==="account")?v("sAcct"):"",
         shipAddress:(shipSpeed()==="pickup")?"Pickup at 3DPX (Chicago, IL)":[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "),
         matCert:document.getElementById("matCert").checked,
-        quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,source:INTERNAL?"internal":"web",
+        quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,source:INTERNAL?"internal":"web",dueDate:REP_DUE||"",
         returnUrl:document.referrer||location.href})});
     const data=await r.json().catch(()=>({}));
     if(data.url){ try{window.top.location.href=data.url;}catch(e){window.location.href=data.url;} return; }
@@ -1153,7 +1155,7 @@ async function submitPO(approved){
         zip:v("sZip"), shipSpeed:shipSpeed(),
         carrier:(shipSpeed()==="account")?v("sCarrier"):"", shipAccount:(shipSpeed()==="account")?v("sAcct"):"",
         shipAddress:(shipSpeed()==="pickup")?"Pickup at 3DPX (Chicago, IL)":[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "),
-        matCert:document.getElementById("matCert").checked,quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,source:INTERNAL?"internal":"web"})});
+        matCert:document.getElementById("matCert").checked,quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,source:INTERNAL?"internal":"web",dueDate:REP_DUE||""})});
     const data=await r.json().catch(()=>({}));
     if(data.ok){
       const b=document.getElementById("payBanner");
@@ -1220,7 +1222,7 @@ async function saveQuote(){
       body:JSON.stringify({token:INTERNAL_TOKEN,id,
         parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,drawingName:p.drawingName||"",thumb:p.thumb||"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
-        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
+        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,dueDate:REP_DUE||"",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
     const data=await r.json().catch(()=>({}));
     if(data.ok){
       const link=location.origin+"/?quote="+data.id;
@@ -1249,10 +1251,10 @@ async function loadQuote(id){
     const r=await fetch("/.netlify/functions/get-quote?id="+encodeURIComponent(id));
     const data=await r.json().catch(()=>({}));
     if(!data.ok||!data.quote)return;
-    const q=data.quote;LOADED_QUOTE_ID=q.id;ADDL_DISC=Math.max(0,+q.addlDisc||0);
+    const q=data.quote;LOADED_QUOTE_ID=q.id;ADDL_DISC=Math.max(0,+q.addlDisc||0);REP_DUE=q.dueDate||"";
     const set=(k,val)=>{const el=document.getElementById(k);if(el&&val!=null&&val!=="")el.value=val;};
     if(q.cust){set("cName",q.cust.name);set("cCo",q.cust.company);set("cEmail",q.cust.email);set("cPhone",q.cust.phone);}
-    set("sRegion",q.region);set("sZip",q.zip);set("sSpeed",q.shipSpeed);
+    set("sRegion",q.region);set("sZip",q.zip);set("sSpeed",q.shipSpeed);set("repDue",q.dueDate);
     if(document.getElementById("matCert"))document.getElementById("matCert").checked=!!q.matCert;
     parts.length=0;
     (q.parts||[]).forEach(p=>{parts.push({id:++pid,name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color||"natural",dye:!!p.dye,vs:!!p.vs,drawingName:p.drawingName||"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual,geo:null,area:0,thumb:null,fileBuf:null});});
@@ -1271,6 +1273,7 @@ async function loadQuote(id){
 if(INTERNAL){
   const rt=document.getElementById("repTools");if(rt)rt.style.display="";
   const ad=document.getElementById("addlDisc");if(ad)ad.addEventListener("input",()=>{ADDL_DISC=Math.max(0,Math.min(100,parseFloat(ad.value)||0));render();});
+  const rdue=document.getElementById("repDue");if(rdue)rdue.addEventListener("change",()=>{REP_DUE=rdue.value||"";});
   const sb=document.getElementById("saveQuoteBtn");if(sb){sb.style.display="";sb.onclick=saveQuote;}
   const apb=document.getElementById("approvedBtn");if(apb){apb.style.display="";apb.onclick=()=>submitPO(true);}
   const tb=document.getElementById("travBtn");if(tb){tb.style.display="";tb.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildTravelerPDF(genOrderNo(),{});if(d)d.save("traveler-"+genOrderNo()+".pdf");};}
