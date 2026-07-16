@@ -23,6 +23,7 @@ const C = {
   shipTo:  7313122478296964,
   notes:   1683622944083844,
   logged:  6187222571454340,
+  invoiceDue: 5758808207167364,
 };
 
 export async function logOrder(o) {
@@ -49,6 +50,7 @@ export async function logOrder(o) {
     cell(C.quoteId, o.quoteId),
     cell(C.shipTo, o.shipTo),
     cell(C.notes, o.notes),
+    cell(C.invoiceDue, o.invoiceDue),
     cell(C.logged, new Date().toISOString().slice(0, 10)),
   ].filter(c => c.value !== "" && c.value != null);
   try {

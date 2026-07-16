@@ -197,6 +197,7 @@ export default async (req) => {
     company: body.company || body.name, contact: body.name, email: body.email, phone: body.phone,
     amount: price, pieces: totalParts, volume: totalVol, colors: colorVals.join(", "),
     delivery: shipMethod, payment: payLabel, po, quoteId: body.quoteId, shipTo: body.shipAddress, notes,
+    invoiceDue: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),  // Net 30 (PO + Approved)
   });
 
   // Attach uploaded STL(s) + PO doc (best-effort).
