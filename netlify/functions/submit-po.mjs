@@ -5,6 +5,7 @@
 
 import { sendOrderEmail } from "./_notify.mjs";
 import { logOrder } from "./_orderlog.mjs";
+import { shipCells } from "./_shipmap.mjs";
 
 const SLS_JOBS_SHEET = "7474902212077444";
 const COL = {
@@ -170,6 +171,7 @@ export default async (req) => {
     { columnId: COL.poType,      value: "Standard", strict: false },
     { columnId: COL.notes,       value: notes },
   ];
+  cells.push(...shipCells(speed));
 
   const r = await fetch("https://api.smartsheet.com/2.0/sheets/" + sheetId + "/rows", {
     method: "POST",
