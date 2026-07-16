@@ -49,6 +49,19 @@ export default async (req) => {
   if (!token) { console.log("No SMARTSHEET_TOKEN set; skipping row creation."); return new Response("ok (no token)", { status: 200 }); }
 
   const sheetId = process.env.SMARTSHEET_SHEET_ID || SLS_JOBS_SHEET;
+
+  // Idempotency: Stripe can deliver the same event more than once (automatic retries or a manual
+  // resend), and this webhook has no natural dedup — so skip if a row for this order already exists.
+  if (m.order_no) {
+    try {
+      const ex = await fetch("https://api.smartsheet.com/2.0/sheets/" + sheetId + "?columnIds=" + COL.poNumber, { headers: { Authorization: "Bearer " + token } });
+      const ed = await ex.json();
+      if ((ed.rows || []).some(r => (r.cells || []).some(c => String(c.value || "").includes(m.order_no)))) {
+        return new Response("duplicate ignored", { status: 200 });
+      }
+    } catch (e) { /* if the check fails, fall through and create the row */ }
+  }
+
   // With Stripe Tax on, amount_total includes tax. Record the pre-tax order value in Price and note the tax.
   const subtotal = (s.amount_subtotal != null ? s.amount_subtotal : (s.amount_total || 0)) / 100;
   const taxAmt = (s.total_details && s.total_details.amount_tax != null ? s.total_details.amount_tax : 0) / 100;
