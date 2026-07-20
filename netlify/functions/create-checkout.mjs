@@ -22,7 +22,7 @@ function zoneMult(zip, region) {
   const m = Math.max(RULES.zoneMultMin, Math.min(RULES.zoneMultMax, 1 + (zone-4)*RULES.zoneStep));
   return Math.round(m*1000)/1000;
 }
-const FINISH = { dyePct:5, vsPct:30, vsMin:15 };
+const FINISH = { dyePct:5, vsPct:30, vsMin:15, tumbFee:1.50 };
 // Delivery speeds — realistic carrier rates: max(min, base + perLb × billable lb) × region. Pickup is free.
 const SHIP_SPEEDS = {
   ground:    { label:"Ground shipping", base:12.5, perLb:1.15, min:12.5 },
@@ -60,6 +60,7 @@ function unitPrice(p) {
   const base = u;
   if (p.dye) u += base*FINISH.dyePct/100;
   if (p.vs)  u += Math.max(base*FINISH.vsPct/100, FINISH.vsMin);
+  if (p.tumble) u += FINISH.tumbFee;
   return u;
 }
 function orderTotal(parts, region, matCert, speed, zip, addl) {
@@ -89,7 +90,7 @@ function orderTotal(parts, region, matCert, speed, zip, addl) {
 function leadDaysCalc(parts) {
   let tv = 0; for (const p of parts) tv += (p.vol||0)*Math.max(1, parseInt(p.qty)||1);
   let base = tv < 3000 ? 3 : Math.ceil(tv/4500 + 3);
-  let fin = 0; for (const p of parts) { const ff = (p.dye?1:0)+(p.vs?1:0); if (ff>fin) fin=ff; }
+  let fin = 0; for (const p of parts) { const ff = (p.dye?1:0)+(p.vs?1:0)+(p.tumble?1:0); if (ff>fin) fin=ff; }
   return base + fin;
 }
 
@@ -129,7 +130,7 @@ export default async (req) => {
   // Color(s) for the Smartsheet MULTI_PICKLIST (valid options: White/Black/Blue/Yellow/Red/Green). "|"-joined.
   const CLR = { natural:"White", black:"Black", blue:"Blue", green:"Green", red:"Red", yellow:"Yellow" };
   const colorList = [...new Set(parts.map(p => (p.dye && CLR[p.color]) ? CLR[p.color] : "White"))].join("|");
-  const summary = parts.map(p => (p.qty + "x " + p.name + " " + p.x + "x" + p.y + "x" + p.z + "mm" + (p.vs?" +vapor":"") + (p.dye?(" +"+(p.color||"dye")):""))).join("; ").slice(0, 460);
+  const summary = parts.map(p => (p.qty + "x " + p.name + " " + p.x + "x" + p.y + "x" + p.z + "mm" + (p.vs?" +vapor":"") + (p.tumble?" +tumble":"") + (p.dye?(" +"+(p.color||"dye")):""))).join("; ").slice(0, 460);
   const orderNo = (body.orderNo && /^WEB-[0-9]{8}-[0-9]{3,5}$/.test(body.orderNo)) ? body.orderNo
     : ("WEB-" + new Date().toISOString().slice(0,10).replace(/-/g,"") + "-" + Math.floor(1000+Math.random()*9000));
   const acctInfo = (speed==="account") ? (" — " + ((body.carrier||"carrier") + " acct " + (body.shipAccount||"(not provided)")).slice(0,80)) : "";

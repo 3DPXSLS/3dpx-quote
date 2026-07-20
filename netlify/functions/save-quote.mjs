@@ -25,7 +25,7 @@ export default async (req) => {
       name: String(p.name || "part").slice(0,120),
       x: +p.x || 0, y: +p.y || 0, z: +p.z || 0, vol: +p.vol || 0,
       qty: Math.max(1, parseInt(p.qty) || 1),
-      color: String(p.color || "natural"), dye: !!p.dye, vs: !!p.vs,
+      color: String(p.color || "natural"), dye: !!p.dye, vs: !!p.vs, tumble: !!p.tumble,
       drawingName: p.drawingName ? String(p.drawingName).slice(0,120) : "",
       thumb: (p.thumb && String(p.thumb).startsWith("data:image")) ? String(p.thumb).slice(0, 400000) : "",
       override: (+p.override > 0) ? +p.override : null,
