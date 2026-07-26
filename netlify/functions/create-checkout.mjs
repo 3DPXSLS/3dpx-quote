@@ -22,7 +22,8 @@ function zoneMult(zip, region) {
   const m = Math.max(RULES.zoneMultMin, Math.min(RULES.zoneMultMax, 1 + (zone-4)*RULES.zoneStep));
   return Math.round(m*1000)/1000;
 }
-const FINISH = { dyePct:5, vsPct:30, vsMin:15, tumbFee:1.50 };
+const FINISH = { dyePct:5, vsPct:30, vsMin:15, tumbFee:1.50, insertFee:1.50 };
+const insCount = p => (p && p.inserts && +p.insertQty > 0) ? Math.floor(+p.insertQty) : 0;
 const PROMO = { SAVE10:10, SAVE5:5 };  // customer promo codes → % off list (keep in sync with the widget PROMO_CODES)
 // Delivery speeds — realistic carrier rates: max(min, base + perLb × billable lb) × region. Pickup is free.
 const SHIP_SPEEDS = {
@@ -62,6 +63,7 @@ function unitPrice(p) {
   if (p.dye) u += base*FINISH.dyePct/100;
   if (p.vs)  u += Math.max(base*FINISH.vsPct/100, FINISH.vsMin);
   if (p.tumble) u += FINISH.tumbFee;
+  if (insCount(p)) u += FINISH.insertFee * insCount(p);
   return u;
 }
 function orderTotal(parts, region, matCert, speed, zip, addl, promoPct) {
@@ -93,7 +95,7 @@ function orderTotal(parts, region, matCert, speed, zip, addl, promoPct) {
 function leadDaysCalc(parts) {
   let tv = 0; for (const p of parts) tv += (p.vol||0)*Math.max(1, parseInt(p.qty)||1);
   let base = tv < 3000 ? 3 : Math.ceil(tv/4500 + 3);
-  let fin = 0; for (const p of parts) { const ff = (p.dye?1:0)+(p.vs?1:0)+(p.tumble?1:0); if (ff>fin) fin=ff; }
+  let fin = 0; for (const p of parts) { const ff = (p.dye?1:0)+(p.vs?1:0)+(p.tumble?1:0)+(insCount(p)?1:0); if (ff>fin) fin=ff; }
   return base + fin;
 }
 
@@ -134,7 +136,7 @@ export default async (req) => {
   // Color(s) for the Smartsheet MULTI_PICKLIST (valid options: White/Black/Blue/Yellow/Red/Green). "|"-joined.
   const CLR = { natural:"White", black:"Black", blue:"Blue", green:"Green", red:"Red", yellow:"Yellow" };
   const colorList = [...new Set(parts.map(p => (p.dye && CLR[p.color]) ? CLR[p.color] : "White"))].join("|");
-  const summary = parts.map(p => (p.qty + "x " + p.name + " " + p.x + "x" + p.y + "x" + p.z + "mm" + (p.vs?" +vapor":"") + (p.tumble?" +tumble":"") + (p.dye?(" +"+(p.color||"dye")):""))).join("; ").slice(0, 460);
+  const summary = parts.map(p => (p.qty + "x " + p.name + " " + p.x + "x" + p.y + "x" + p.z + "mm" + (p.vs?" +vapor":"") + (p.tumble?" +tumble":"") + (insCount(p)?(" +"+insCount(p)+"ins"):"") + (p.dye?(" +"+(p.color||"dye")):""))).join("; ").slice(0, 460);
   const orderNo = (body.orderNo && /^WEB-[0-9]{8}-[0-9]{3,5}$/.test(body.orderNo)) ? body.orderNo
     : ("WEB-" + new Date().toISOString().slice(0,10).replace(/-/g,"") + "-" + Math.floor(1000+Math.random()*9000));
   const acctInfo = (speed==="account") ? (" — " + ((body.carrier||"carrier") + " acct " + (body.shipAccount||"(not provided)")).slice(0,80)) : "";
