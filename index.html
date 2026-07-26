@@ -248,6 +248,7 @@
       <div class="btns">
         <button class="btn ghost" id="emailBtn">Email quote</button>
         <button class="btn ghost" id="dlBtn">Download PDF</button>
+        <button class="btn ghost" id="custSaveBtn" title="Save your quote and get a reference number you can send us">Save my quote</button>
         <button class="btn orange" id="payBtn" style="display:none">Order &amp; pay</button>
         <button class="btn ghost" id="poBtn" style="display:none">Submit PO (invoice)</button>
         <button class="btn ghost" id="approvedBtn" style="display:none" title="Internal: create the order now (written approval on file) — no card, no PO required">Create order — approved (no payment)</button>
@@ -910,6 +911,7 @@ document.getElementById("emailBtn").onclick=()=>{
 
 /* ---- wire up ---- */
 const drop=document.getElementById("drop");
+{const csb=document.getElementById("custSaveBtn");if(csb)csb.onclick=customerSaveQuote;}
 drop.onclick=()=>document.getElementById("stlInput").click();
 document.getElementById("stlInput").onchange=e=>{if(e.target.files.length)handleFiles(e.target.files);e.target.value="";};
 ["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("over");}));
@@ -1137,7 +1139,7 @@ async function ensureQuoteSaved(){
       body:JSON.stringify({token:INTERNAL_TOKEN,
         parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,drawingName:p.drawingName||"",thumb:"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
-        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,promo:PROMO_CODE,dueDate:REP_DUE||"",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
+        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,promo:PROMO_CODE,dueDate:REP_DUE||"",total:orderTotals().total,origin:location.origin,source:INTERNAL?"internal":"web",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
     const d=await r.json().catch(()=>({}));
     if(d.ok){LOADED_QUOTE_ID=d.id;return d.id;}
   }catch(e){}
@@ -1270,7 +1272,7 @@ const INTERNAL_TOKEN=_URLP.get("internal")||"1";
 async function saveQuote(){
   if(!parts.length){alert("Add at least one part first.");return;}
   const btn=document.getElementById("saveQuoteBtn"),orig=btn.textContent;btn.disabled=true;btn.textContent="Saving…";
-  const id="Q-"+Math.random().toString(36).slice(2,8).toUpperCase();
+  const id=LOADED_QUOTE_ID||("Q-"+Math.random().toString(36).slice(2,8).toUpperCase());  // reuse id when editing a loaded quote → same customer link updates
   for(let i=0;i<parts.length;i++){const p=parts[i];
     if(p.fileBuf&&p.fileBuf.byteLength<=6*1024*1024){try{await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(id)+"&i="+i+"&name="+encodeURIComponent(p.fileName||(p.name+".stl")),{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.fileBuf});}catch(e){}}
     if(p.drawingBuf&&p.drawingBuf.byteLength<=6*1024*1024){try{await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(id)+"&i=draw"+i+"&name="+encodeURIComponent("drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf"))),{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.drawingBuf});}catch(e){}}
@@ -1280,9 +1282,10 @@ async function saveQuote(){
       body:JSON.stringify({token:INTERNAL_TOKEN,id,
         parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,drawingName:p.drawingName||"",thumb:p.thumb||"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
-        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,promo:PROMO_CODE,dueDate:REP_DUE||"",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
+        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,promo:PROMO_CODE,dueDate:REP_DUE||"",total:orderTotals().total,origin:location.origin,source:INTERNAL?"internal":"web",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
     const data=await r.json().catch(()=>({}));
     if(data.ok){
+      LOADED_QUOTE_ID=data.id;
       const link=location.origin+"/?quote="+data.id;
       const shortId=data.id.replace(/^Q-/,""); const label="3DPX Quote "+shortId;
       const box=document.getElementById("quoteLinkBox");
@@ -1300,6 +1303,35 @@ async function saveQuote(){
         box.scrollIntoView({behavior:"smooth",block:"center"});
       }
       try{const doc=buildQuotePDF(data.id,{});if(doc)doc.save("quote-"+data.id+".pdf");}catch(e){}
+    } else { alert(data.error||"Could not save the quote."); }
+  }catch(e){ alert("Could not save the quote right now."); }
+  btn.textContent=orig;btn.disabled=false;
+}
+/* Customer-facing save: mints a fresh quote, stores it (public — rep pricing fields stripped server-side),
+   emails the customer a copy, and shows a reference number they can give us to pull it up later. */
+async function customerSaveQuote(){
+  if(!parts.length){alert("Add at least one part first.");return;}
+  const email=v("cEmail");
+  if(!email){alert("Please enter your email under Contact details so we can save and send your quote.");const ce=document.getElementById("cEmail");if(ce)ce.focus();return;}
+  const btn=document.getElementById("custSaveBtn"),orig=btn.textContent;btn.disabled=true;btn.textContent="Saving…";
+  const id="Q-"+Math.random().toString(36).slice(2,8).toUpperCase();
+  for(let i=0;i<parts.length;i++){const p=parts[i];
+    if(p.fileBuf&&p.fileBuf.byteLength<=6*1024*1024){try{await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(id)+"&i="+i+"&name="+encodeURIComponent(p.fileName||(p.name+".stl")),{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.fileBuf});}catch(e){}}
+    if(p.drawingBuf&&p.drawingBuf.byteLength<=6*1024*1024){try{await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(id)+"&i=draw"+i+"&name="+encodeURIComponent("drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf"))),{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.drawingBuf});}catch(e){}}
+  }
+  try{
+    const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({id,
+        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,drawingName:p.drawingName||"",thumb:p.thumb||"",manual:!!p.manual})),
+        region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
+        matCert:document.getElementById("matCert").checked,promo:PROMO_CODE,total:orderTotals().total,origin:location.origin,source:"web",name:v("cName"),company:v("cCo"),email:email,phone:v("cPhone")})});
+    const data=await r.json().catch(()=>({}));
+    if(data.ok){
+      const link=location.origin+"/?quote="+data.id;
+      const box=document.getElementById("quoteLinkBox");
+      if(box){box.style.display="block";
+        box.innerHTML='<b style="color:#1b2a4a">Quote saved — reference '+data.id+'</b><div style="font-size:12px;color:#5a6678;margin:2px 0 8px">We’ve emailed a copy to '+esc(email)+' (check spam). To change anything, reply to that email or call (312) 896-3399 and mention '+data.id+'. Reopen it any time:</div><input readonly value="'+link+'" onclick="this.select()" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #cbd5e6;border-radius:6px;font-size:12px">';
+        box.scrollIntoView({behavior:"smooth",block:"center"});}
     } else { alert(data.error||"Could not save the quote."); }
   }catch(e){ alert("Could not save the quote right now."); }
   btn.textContent=orig;btn.disabled=false;
