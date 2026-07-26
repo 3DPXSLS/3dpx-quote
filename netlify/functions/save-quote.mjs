@@ -36,6 +36,7 @@ export default async (req) => {
     shipSpeed: String(body.shipSpeed || "ground"),
     matCert: !!body.matCert,
     addlDisc: Math.max(0, +body.addlDisc || 0),
+    promo: String(body.promo || "").trim().toUpperCase().slice(0,24),
     dueDate: /^\d{4}-\d{2}-\d{2}$/.test(String(body.dueDate || "")) ? body.dueDate : "",
     note: String(body.note || "").slice(0, 600),
     cust: {

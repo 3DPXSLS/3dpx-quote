@@ -23,6 +23,7 @@ function zoneMult(zip, region) {
   return Math.round(m*1000)/1000;
 }
 const FINISH = { dyePct:5, vsPct:30, vsMin:15, tumbFee:1.50 };
+const PROMO = { SAVE10:10, SAVE5:5 };  // customer promo codes → % off list (keep in sync with the widget PROMO_CODES)
 // Delivery speeds — realistic carrier rates: max(min, base + perLb × billable lb) × region. Pickup is free.
 const SHIP_SPEEDS = {
   ground:    { label:"Ground shipping", base:12.5, perLb:1.15, min:12.5 },
@@ -63,7 +64,7 @@ function unitPrice(p) {
   if (p.tumble) u += FINISH.tumbFee;
   return u;
 }
-function orderTotal(parts, region, matCert, speed, zip, addl) {
+function orderTotal(parts, region, matCert, speed, zip, addl, promoPct) {
   // p.ov (rep per-unit override) → fixed line, excluded from all discounts.
   let discGross=0, postQty=0, fixedTot=0, hasNormal=false;
   for (const p of parts) {
@@ -75,6 +76,8 @@ function orderTotal(parts, region, matCert, speed, zip, addl) {
   const vp = vd(discGross);
   let after = (postQty - postQty*vp/100);
   if (hasNormal) after = after * (1 - Math.max(0, Math.min(100, addl||0))/100);
+  const pp = Math.max(0, Math.min(100, promoPct||0));  // promo: % off list, applied only if it beats the auto discounts
+  if (pp>0 && hasNormal) { const promoNet = discGross*(1-pp/100); if (promoNet < after) after = promoNet; }
   after += fixedTot;
   const topUp = Math.max(0, RULES.orderMin - after);
   const sp = SHIP_SPEEDS[speed] ? speed : "ground";
@@ -120,7 +123,8 @@ export default async (req) => {
   const needsManual = parts.some(p => (p.manual || !(+p.vol > 0) || !(+p.x > 0 && +p.y > 0 && +p.z > 0)) && !(+p.ov > 0));
   if (needsManual) return json({ error: "This order includes an item that needs a manual quote — please use Submit PO or email sales@3dpx.com, and we'll send a payment link." }, 400);
 
-  const amount = Math.round(orderTotal(parts, body.region, !!body.matCert, speed, body.zip, addlDisc) * 100);
+  const promoPct = PROMO[String(body.promo||"").trim().toUpperCase()] || 0;
+  const amount = Math.round(orderTotal(parts, body.region, !!body.matCert, speed, body.zip, addlDisc, promoPct) * 100);
   if (amount < 50) return json({ error: "Order total too low." }, 400);
 
   const totalParts = parts.reduce((s,p)=>s+(Math.max(1,parseInt(p.qty)||1)),0);

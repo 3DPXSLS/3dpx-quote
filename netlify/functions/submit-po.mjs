@@ -43,6 +43,7 @@ function zoneMult(zip, region) {
   return Math.round(m*1000)/1000;
 }
 const FINISH = { dyePct:5, vsPct:30, vsMin:15, tumbFee:1.50 };
+const PROMO = { SAVE10:10, SAVE5:5 };  // customer promo codes → % off list (keep in sync with the widget PROMO_CODES)
 const SHIP_SPEEDS = {
   ground:    { label:"Ground shipping", base:12.5, perLb:1.15, min:12.5 },
   expedited: { label:"Expedited",       base:26,   perLb:2.60, min:26 },
@@ -81,7 +82,7 @@ function unitPrice(p) {
   if (p.tumble) u += FINISH.tumbFee;
   return u;
 }
-function orderTotal(parts, region, matCert, speed, zip, addl) {
+function orderTotal(parts, region, matCert, speed, zip, addl, promoPct) {
   // p.ov (rep per-unit override) → fixed line, excluded from all discounts.
   let discGross=0, postQty=0, fixedTot=0, hasNormal=false;
   for (const p of parts) {
@@ -93,6 +94,8 @@ function orderTotal(parts, region, matCert, speed, zip, addl) {
   const vp = vd(discGross);
   let after = (postQty - postQty*vp/100);
   if (hasNormal) after = after * (1 - Math.max(0, Math.min(100, addl||0))/100);
+  const pp = Math.max(0, Math.min(100, promoPct||0));  // promo: % off list, applied only if it beats the auto discounts
+  if (pp>0 && hasNormal) { const promoNet = discGross*(1-pp/100); if (promoNet < after) after = promoNet; }
   after += fixedTot;
   const topUp = Math.max(0, RULES.orderMin - after);
   const sp = SHIP_SPEEDS[speed] ? speed : "ground";
@@ -132,7 +135,8 @@ export default async (req) => {
   if (body.quoteId && /^Q-[A-Za-z0-9]{4,12}$/.test(body.quoteId)) {
     try { const { getStore } = await import("@netlify/blobs"); const q = await getStore("orders").get("Q-QUOTES/" + body.quoteId + ".json", { type: "json" }); if (q && typeof q.addlDisc === "number") addlDisc = Math.max(0, q.addlDisc); if (q && Array.isArray(q.parts)) q.parts.forEach((qp, i) => { if (parts[i] && qp && +qp.override > 0) parts[i].ov = +qp.override; }); } catch (e) {}
   }
-  const price = orderTotal(parts, body.region, !!body.matCert, speed, body.zip, addlDisc);
+  const promoPct = PROMO[String(body.promo||"").trim().toUpperCase()] || 0;
+  const price = orderTotal(parts, body.region, !!body.matCert, speed, body.zip, addlDisc, promoPct);
   const totalParts = parts.reduce((s,p)=>s+(Math.max(1,parseInt(p.qty)||1)),0);
   const totalVol   = Math.round(parts.reduce((s,p)=>s+(p.vol||0)*(Math.max(1,parseInt(p.qty)||1)),0)*100)/100;
   const dyeAny   = parts.some(p=>p.dye);

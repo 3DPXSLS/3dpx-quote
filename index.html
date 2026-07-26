@@ -207,6 +207,14 @@
     <h2 style="margin-top:22px">4 · Order options</h2>
     <label class="addon"><input type="checkbox" id="matCert"> <span><b>Material certification</b> — certificate of conformance &amp; material data sheet</span> <span class="addprice">+$100</span></label>
     <div style="margin-top:16px;border:1px solid var(--line);border-radius:10px;padding:14px 16px;background:#fbfcfe">
+      <div style="font-weight:700;color:#1b2a4a;margin-bottom:2px">🎟️ Promo code (optional)</div>
+      <div style="font-size:12.5px;color:#42506b;margin-bottom:10px">Have a code? Enter it to apply your discount.</div>
+      <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">
+        <input id="promoCode" placeholder="e.g. SAVE10" style="max-width:220px;text-transform:uppercase" autocomplete="off">
+        <div id="promoMsg" style="font-size:12.5px;padding:9px 0"></div>
+      </div>
+    </div>
+    <div style="margin-top:16px;border:1px solid var(--line);border-radius:10px;padding:14px 16px;background:#fbfcfe">
       <div style="font-weight:700;color:#1b2a4a;margin-bottom:2px">🧾 Purchase order (optional)</div>
       <div style="font-size:12.5px;color:#42506b;margin-bottom:10px">Ordering on terms? Enter your PO and click <b>Submit PO</b> below — we'll review and invoice you, no card charged.</div>
       <div class="contact" style="margin:0">
@@ -423,6 +431,11 @@ function unitPrice(p){
 }
 let ADDL_DISC=0;  // rep-set additional discount ($ off), internal only
 let REP_DUE="";   // rep-set custom due date (YYYY-MM-DD), internal only; blank = auto from lead time
+const PROMO_CODES={SAVE10:10, SAVE5:5};  // customer promo codes → % off LIST price. Editable. Customer gets the BETTER of the promo or the automatic discounts, not both.
+let PROMO_CODE="", PROMO_PCT=0;          // resolved from the code the customer typed (0 = none/invalid)
+function resolvePromo(code){const k=String(code||"").trim().toUpperCase();return {code:k, pct:PROMO_CODES[k]||0};}
+// Per-line display factor: multiplies the qty-discounted unit/line so the shown prices sum to the order total in every mode (auto discounts, rep additional, or promo).
+function lineFactor(c,t){ if(c.fixed) return 1; if(t&&t.promoApplied) return c.net>0?(c.list*(1-(t.promoPct||0)/100))/c.net:1; return (1-((t&&t.valPct)||0)/100)*(1-((t&&t.addlPct)||0)/100); }
 function orderTotals(){
   // discGross/postQty = discountable (normal) lines only; fixedTot = rep-overridden lines (no discounts)
   let discGross=0, postQty=0, fixedTot=0, hasNormal=false;
@@ -434,7 +447,11 @@ function orderTotals(){
   else { const valAlt=discGross*vPct/100;
     if(valAlt>=qtyDisc){ afterDisc=discGross-valAlt; qtyDiscShown=0; valDiscShown=valAlt; valPctShown=vPct; }
     else { afterDisc=postQty; } }
-  const addlPct=Math.max(0,Math.min(100,ADDL_DISC||0)); const addlApplied=hasNormal?afterDisc*addlPct/100:0; afterDisc=afterDisc-addlApplied;
+  const addlPct=Math.max(0,Math.min(100,ADDL_DISC||0)); let addlApplied=hasNormal?afterDisc*addlPct/100:0; afterDisc=afterDisc-addlApplied;
+  // Customer promo code: % off LIST for discountable lines; applied only if it beats the automatic discounts (never stacks on top).
+  const promoPct=Math.max(0,Math.min(100,PROMO_PCT||0)); let promoApplied=false;
+  if(promoPct>0 && hasNormal){ const promoNet=discGross*(1-promoPct/100);
+    if(promoNet<afterDisc-0.005){ promoApplied=true; afterDisc=promoNet; qtyDiscShown=0; valDiscShown=0; valPctShown=0; addlApplied=0; } }
   afterDisc=afterDisc+fixedTot;                 // overridden lines added at their final price
   const gross=discGross+fixedTot;               // display subtotal (list) incl. overridden lines
   const topUp=parts.length?Math.max(0,RULES.orderMin-afterDisc):0;
@@ -446,7 +463,7 @@ function orderTotals(){
   const matCert=(parts.length&&typeof document!=="undefined"&&document.getElementById("matCert")&&document.getElementById("matCert").checked)?RULES.matCertFee:0;
   const totalVol=parts.reduce((s,p)=>s+(p.vol||0)*(p.qty||0),0);
   const perCc=totalVol>0?afterDisc/totalVol:0;
-  return {gross, qtyDisc:qtyDiscShown, valPct:valPctShown, valDisc:valDiscShown, addlDisc:addlApplied, addlPct, afterDisc, topUp,
+  return {gross, qtyDisc:qtyDiscShown, valPct:valPctShown, valDisc:valDiscShown, addlDisc:addlApplied, addlPct, promoApplied, promoPct:promoApplied?promoPct:0, promoCode:promoApplied?PROMO_CODE:"", afterDisc, topUp,
           shipping, billableLb, zone, matCert, speed, pickup, account, perCc, totalVol, total:afterDisc+topUp+shipping+matCert, saved:gross-afterDisc};
 }
 function regionLabel(){const r=(document.getElementById("sRegion")||{}).value;return r==="intl"?"International":r==="camx"?"Canada / Mexico":"United States";}
@@ -493,18 +510,32 @@ async function stepToGeom(buf){
   const occt=await loadOCCT();
   const res=occt.ReadStepFile(new Uint8Array(buf), null);
   if(!res || !res.success || !res.meshes || !res.meshes.length) throw new Error("no geometry");
-  const tris=[];
+  const allTris=[], boxes=[];   // boxes = per-solid AABBs (occt returns one mesh per solid body)
   for(const mesh of res.meshes){
     const pos=mesh.attributes && mesh.attributes.position && mesh.attributes.position.array;
     const idx=mesh.index && mesh.index.array;
     if(!pos || !idx) continue;
+    let miX=1/0,miY=1/0,miZ=1/0,maX=-1/0,maY=-1/0,maZ=-1/0,got=false;
     for(let k=0;k+2<idx.length;k+=3){
       const a=idx[k]*3, b=idx[k+1]*3, c=idx[k+2]*3;
-      tris.push([pos[a],pos[a+1],pos[a+2], pos[b],pos[b+1],pos[b+2], pos[c],pos[c+1],pos[c+2]]);
+      const t=[pos[a],pos[a+1],pos[a+2], pos[b],pos[b+1],pos[b+2], pos[c],pos[c+1],pos[c+2]];
+      allTris.push(t); got=true;
+      for(let q=0;q<9;q+=3){const x=t[q],y=t[q+1],z=t[q+2];if(x<miX)miX=x;if(y<miY)miY=y;if(z<miZ)miZ=z;if(x>maX)maX=x;if(y>maY)maY=y;if(z>maZ)maZ=z;}
     }
+    if(got) boxes.push([miX,miY,miZ,maX,maY,maZ]);
   }
-  if(!tris.length) throw new Error("empty mesh");
-  return acc(tris);
+  if(!allTris.length) throw new Error("empty mesh");
+  const r=acc(allTris);
+  // Multi-body detection: the divergence-theorem volume SUMS every solid. Non-touching bodies sum
+  // correctly; bodies whose bounding boxes overlap can double-count shared material → don't trust the
+  // auto volume, route to manual. (Fixes STEP assemblies reading high, e.g. 16466 vs 9666 cm³.)
+  r.bodies=boxes.length; r.overlap=false;
+  const EPS=0.01;
+  for(let i=0;i<boxes.length && !r.overlap;i++) for(let j=i+1;j<boxes.length;j++){
+    const A=boxes[i],B=boxes[j];
+    if(A[0]<B[3]-EPS&&A[3]>B[0]+EPS&&A[1]<B[4]-EPS&&A[4]>B[1]+EPS&&A[2]<B[5]-EPS&&A[5]>B[2]+EPS){r.overlap=true;break;}
+  }
+  return r;
 }
 /* Build a binary STL from a non-indexed position array (9 floats/triangle) — used to attach a
    ready-to-slice .stl alongside the original .stp on STEP orders. */
@@ -629,7 +660,14 @@ function handleFiles(files){[...files].forEach(file=>{
     if(ext==="stp"||ext==="step"){
       try{
         const r=await stepToGeom(buf); if(!r.count) throw 0;
-        const part=partFromGeom(file,buf,r); parts.push(part); createViewer(part); render();
+        if(r.bodies>1 && r.overlap){
+          parts.push({id:++pid,name:file.name.replace(/\.(stp|step)$/i,""),fileName:file.name,fileBuf:buf,
+            x:+r.x.toFixed(1),y:+r.y.toFixed(1),z:+r.z.toFixed(1),vol:0,qty:1,color:"natural",dye:false,vs:false,tumble:false,geo:null,area:0,thumb:renderThumb(r.pos),manual:true,assembly:r.bodies});
+          render();
+          alert(file.name+" contains "+r.bodies+" overlapping bodies, so we can't auto-measure its volume reliably (assemblies can double-count shared material). It's added as a manual-quote item — our team will confirm the price. Tip: save each solid as its own STEP file for an instant quote.");
+          return;
+        }
+        const part=partFromGeom(file,buf,r); if(r.bodies>1) part.assembly=r.bodies; parts.push(part); createViewer(part); render();
       }catch(err){
         parts.push({id:++pid,name:file.name.replace(/\.(stp|step)$/i,""),fileName:file.name,fileBuf:buf,
           x:0,y:0,z:0,vol:0,qty:1,color:"natural",dye:false,vs:false,tumble:false,geo:null,area:0,thumb:null,manual:true});
@@ -652,7 +690,8 @@ function render(){
   parts.forEach((p,i)=>{
     const c=lineCalc(p),isMan=!!c.manual,checks=isMan?[]:partChecks(p);
     const nt=nextQtyTier(p.qty);
-    const _df2=c.fixed?1:_df;
+    const _df2=lineFactor(c,_t0);
+    const _shownUnit=c.net*_df2, _showWas=!c.fixed&&_shownUnit<c.list-0.005;
     let nudge="";
     if(nt&&!c.fixed){const need=nt.q-p.qty, eaNext=c.list*(1-nt.d/100);
       nudge=`<div class="nudge" data-bump="${p.id}" data-to="${nt.q}">💡 Add ${need} more (${nt.q} total) for <b>${nt.d}% off</b> — ${money(eaNext)}/ea<span class="go">Apply →</span></div>`;}
@@ -662,13 +701,13 @@ function render(){
         <div style="display:flex;gap:12px;align-items:flex-start;min-width:0">
           ${window.THREE&&p.geo?`<div class="viewwrap"><div class="viewslot" data-view="${p.id}" title="Drag to rotate"></div><div class="viewhint">↻ drag to rotate</div></div>`:(p.thumb?`<img class="thumb" src="${p.thumb}" alt="3D preview of ${esc(p.name)}">`:"")}
           <div style="min-width:0"><div class="nm">${esc(p.name)}</div>
-          <div class="dims">${isMan?`STEP file · qty <b>${p.qty}</b> · <span class="save">manual quote</span>${(p.override>0)?` · <span class="save">custom $</span>`:""}`:`${p.x}×${p.y}×${p.z} mm · ${p.vol} cm³ · qty <b>${p.qty}</b>${c.fixed?` · <span class="save">custom $</span>`:`${c.qp>0?` · <span class="save">${c.qp}% qty</span>`:""}${_valPct>0?` · <span class="save">${_valPct}% order</span>`:""}${_addlPct>0?` · <span class="save">${_addlPct}% add&#39;l</span>`:""}`}`}</div>
+          <div class="dims">${isMan?`STEP file · qty <b>${p.qty}</b> · <span class="save">manual quote</span>${(p.override>0)?` · <span class="save">custom $</span>`:""}`:`${p.x}×${p.y}×${p.z} mm · ${p.vol} cm³ · qty <b>${p.qty}</b>${c.fixed?` · <span class="save">custom $</span>`:(_t0.promoApplied?` · <span class="save">${_t0.promoPct}% promo</span>`:`${c.qp>0?` · <span class="save">${c.qp}% qty</span>`:""}${_valPct>0?` · <span class="save">${_valPct}% order</span>`:""}${_addlPct>0?` · <span class="save">${_addlPct}% add&#39;l</span>`:""}`)}`}</div>
           ${isMan?`<div class="dims" style="opacity:.7;margin-top:1px">Awaiting manual measurement — STEP attached for review</div>`:`<div class="dims" style="opacity:.7;margin-top:1px">${(p.x/25.4).toFixed(2)}×${(p.y/25.4).toFixed(2)}×${(p.z/25.4).toFixed(2)} in · ${(p.vol*0.0610237).toFixed(2)} in³</div>`}</div>
         </div>
         <div style="display:flex;align-items:center;gap:12px">
           <div style="text-align:right">
             <div class="price">${isMan?`<span style="font-size:15px;color:#8a5a00">Quote pending</span>`:money(c.lineNet*_df2)}</div>
-            <div class="each">${isMan?`our team will price this`:`${(!c.fixed&&(c.qp>0||_df<0.999))?`<span class="was">${money(c.list)}</span> `:""}${money(c.net*_df2)} <span class="ea">/ea</span>`}</div>
+            <div class="each">${isMan?`our team will price this`:`${_showWas?`<span class="was">${money(c.list)}</span> `:""}${money(_shownUnit)} <span class="ea">/ea</span>`}</div>
           </div>
           <button class="rm" data-del="${p.id}" title="Remove">×</button></div>
       </div>
@@ -702,7 +741,7 @@ function render(){
         <div class="crow"><span>Inspection</span><b>Standard</b></div>
       </div>
       ${nudge}
-      <div class="checks">${checks.length?checks.map(m=>`<span class="flag">⚠ ${m}</span>`).join(""):`<span class="ok">✓ Looks printable — no obvious issues</span>`}</div>`;
+      <div class="checks">${(p.assembly&&!isMan)?`<span class="flag">⚠ ${p.assembly}-body assembly — volume is the sum of all solids</span>`:""}${checks.length?checks.map(m=>`<span class="flag">⚠ ${m}</span>`).join(""):(!p.assembly?`<span class="ok">✓ Looks printable — no obvious issues</span>`:"")}</div>`;
     ul.appendChild(li);
   });
   ul.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{disposeViewer(b.dataset.del);parts=parts.filter(p=>p.id!=b.dataset.del);render();});
@@ -738,9 +777,13 @@ function render(){
   let lines="";
   lines+=`<div class="oline"><span>Parts</span><b>${parts.length} part${parts.length===1?"":"s"} · ${pcs} pc${pcs===1?"":"s"}</b></div>`;
   lines+=`<div class="oline"><span>Subtotal</span><b>${money(t.gross)}</b></div>`;
-  const stdDisc=t.saved-(t.addlDisc||0);
-  if(stdDisc>0.005) lines+=`<div class="oline save"><span>Discounts (save ${Math.round(stdDisc/t.gross*100)}%)</span><b>−${money(stdDisc)}</b></div>`;
-  if(t.addlDisc>0.005) lines+=`<div class="oline save"><span>Additional discount (${t.addlPct}%)</span><b>−${money(t.addlDisc)}</b></div>`;
+  if(t.promoApplied){
+    lines+=`<div class="oline save"><span>Promo ${esc(t.promoCode)} (${t.promoPct}% off list)</span><b>−${money(t.saved)}</b></div>`;
+  } else {
+    const stdDisc=t.saved-(t.addlDisc||0);
+    if(stdDisc>0.005) lines+=`<div class="oline save"><span>Discounts (save ${Math.round(stdDisc/t.gross*100)}%)</span><b>−${money(stdDisc)}</b></div>`;
+    if(t.addlDisc>0.005) lines+=`<div class="oline save"><span>Additional discount (${t.addlPct}%)</span><b>−${money(t.addlDisc)}</b></div>`;
+  }
   if(t.topUp>0) lines+=`<div class="oline"><span>Order minimum top-up</span><b>${money(t.topUp)}</b></div>`;
   if(t.pickup) lines+=`<div class="oline"><span>Pickup at 3DPX (Chicago, IL)</span><b style="color:#1e9e6a">Free</b></div>`;
   else if(t.account) lines+=`<div class="oline"><span>Shipping · your carrier account${(document.getElementById("sCarrier")||{}).value?` (${(document.getElementById("sCarrier")||{}).value})`:""}</span><b style="color:#1e9e6a">Billed to you</b></div>`;
@@ -765,8 +808,8 @@ function esc(s){return(s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"
 /* ---- quote document (for PDF) ---- */
 function quoteNum(){const d=new Date();return "WEB-"+d.getFullYear()+(""+(d.getMonth()+1)).padStart(2,"0")+(""+d.getDate()).padStart(2,"0")+"-"+(""+d.getHours()).padStart(2,"0")+(""+d.getMinutes()).padStart(2,"0");}
 function buildQuoteDoc(qn){
-  const t=orderTotals(); const df=(1-(t.valPct||0)/100)*(1-(t.addlPct||0)/100);
-  const rows=parts.map((p,i)=>{const c=lineCalc(p);const ldf=c.fixed?1:df;const dpct=c.fixed?0:Math.round((1-(c.net*df)/c.list)*100);const bd="border-bottom:1px solid #eef2f8";const bg=i%2?"background:#fafbfd;":"";return `<tr style="${bg}">
+  const t=orderTotals();
+  const rows=parts.map((p,i)=>{const c=lineCalc(p);const ldf=lineFactor(c,t);const dpct=c.fixed?0:Math.round((1-(c.net*ldf)/c.list)*100);const bd="border-bottom:1px solid #eef2f8";const bg=i%2?"background:#fafbfd;":"";return `<tr style="${bg}">
     <td style="padding:8px 6px;${bd}"><div style="display:flex;align-items:center;gap:8px">${p.thumb?`<img src="${p.thumb}" style="width:34px;height:34px;border:1px solid #e2e8f2;border-radius:5px;object-fit:contain">`:""}<span style="font-weight:600">${esc(p.name)}</span></div></td>
     <td style="padding:8px 6px;${bd};font-size:11px;color:#42506b">SLS · Nylon 12 · ${p.dye?("Dyed "+COLORS[partColor(p)].label):"White"}</td>
     <td style="padding:8px 6px;${bd}">${p.x}×${p.y}×${p.z} mm<div style="font-size:10px;color:#6b7891">${(p.x/25.4).toFixed(2)}×${(p.y/25.4).toFixed(2)}×${(p.z/25.4).toFixed(2)} in</div></td>
@@ -816,6 +859,7 @@ function buildQuoteDoc(qn){
       <div style="display:flex;justify-content:space-between;padding:3px 0;color:#42506b"><span>Subtotal</span><span>${money(t.gross)}</span></div>
       ${t.qtyDisc>0.005?`<div style="display:flex;justify-content:space-between;padding:3px 0;color:#1e9e6a"><span>Quantity discount</span><span>−${money(t.qtyDisc)}</span></div>`:""}
       ${t.valDisc>0.005?`<div style="display:flex;justify-content:space-between;padding:3px 0;color:#1e9e6a"><span>Order-value discount (${t.valPct}%)</span><span>−${money(t.valDisc)}</span></div>`:""}
+      ${t.promoApplied?`<div style="display:flex;justify-content:space-between;padding:3px 0;color:#1e9e6a"><span>Promo ${esc(t.promoCode)} (${t.promoPct}% off list)</span><span>−${money(t.saved)}</span></div>`:""}
       ${t.topUp>0?`<div style="display:flex;justify-content:space-between;padding:3px 0"><span>Order minimum top-up</span><span>${money(t.topUp)}</span></div>`:""}
       <div style="display:flex;justify-content:space-between;padding:3px 0;color:#42506b"><span>${shipRowLabel}</span><span>${shipRowVal}</span></div>
       <div style="display:flex;justify-content:space-between;padding:3px 0;color:#42506b"><span>Sales tax</span><span>calculated at checkout</span></div>
@@ -872,6 +916,11 @@ document.getElementById("sZip").addEventListener("input",render);
 document.getElementById("sCarrier").addEventListener("change",render);
 document.getElementById("sAcct").addEventListener("input",render);
 document.getElementById("matCert").addEventListener("change",render);
+function applyPromoInput(){const el=document.getElementById("promoCode");const raw=(el?el.value:"")||"";const r=resolvePromo(raw);PROMO_CODE=r.pct>0?r.code:"";PROMO_PCT=r.pct;
+  const msg=document.getElementById("promoMsg");
+  if(msg){ if(!raw.trim()){msg.textContent="";} else if(r.pct>0){const t=orderTotals();msg.innerHTML=t.promoApplied?`<span style="color:#1e7d52">✓ ${r.pct}% off applied</span>`:`<span style="color:#8a6d1e">Code valid, but your current discounts already save more — kept the better price.</span>`;} else {msg.innerHTML=`<span style="color:#c0392b">Code not recognized</span>`;} }
+  render();}
+{const pc=document.getElementById("promoCode");if(pc)pc.addEventListener("input",applyPromoInput);}
 function toggleShip(){
   const sp=shipSpeed(), pickup=(sp==="pickup"), account=(sp==="account");
   ["sAddr","sCity","sState","sZip","sRegion"].forEach(id=>{const el=document.getElementById(id);if(el){el.disabled=pickup;el.style.opacity=pickup?0.5:1;}});
@@ -1016,8 +1065,7 @@ function buildQuotePDF(orderNo,opts){
   const meta=[["Quote #",orderNo],["Date",orderDate],["Valid","30 days"]]; if(opts.po)meta.push(["PO",opts.po]);
   let my=y; meta.forEach(m=>{doc.setFont("helvetica","bold");doc.text(m[0],W-M-150,my);doc.setFont("helvetica","normal");doc.text(String(m[1]),W-M,my,{align:"right"});my+=14;});
   y=Math.max(py,my)+8;
-  const df=(1-(t.valPct||0)/100)*(1-(t.addlPct||0)/100);
-  const rows=parts.map((p,i)=>{const c=lineCalc(p);const ldf=c.fixed?1:df;const clr=p.dye?COLORS[partColor(p)].label:"White (Natural)";
+  const rows=parts.map((p,i)=>{const c=lineCalc(p);const ldf=lineFactor(c,t);const clr=p.dye?COLORS[partColor(p)].label:"White (Natural)";
     const desc="SLS · Nylon 12 (PA12) · "+(p.dye?("Dyed "+clr):"White (Natural)")+(p.vs?" · Vapor smoothed":"")+(c.manual?" · quote pending":"");
     const unit=c.manual?"—":money(c.net*ldf), line=c.manual?"manual quote":money(c.lineNet*ldf);
     return [String(i+1),"",p.name,desc,String(p.qty),unit,line];});
@@ -1028,7 +1076,7 @@ function buildQuotePDF(orderNo,opts){
     didDrawCell:(d)=>{if(d.section==="body"&&d.column.index===1){const p=parts[d.row.index];if(p&&p.thumb){try{const s=Math.min(d.cell.height,d.cell.width)-6;doc.addImage(p.thumb,"PNG",d.cell.x+(d.cell.width-s)/2,d.cell.y+(d.cell.height-s)/2,s,s);}catch(e){}}}},
     margin:{left:M,right:M}});
   const rowsT=[["Subtotal",money(t.gross)]];
-  if(t.saved>0.005)rowsT.push(["Discounts"+(t.addlPct>0?" (incl "+t.addlPct+"% add'l)":""),"-"+money(t.saved)]);
+  if(t.saved>0.005)rowsT.push([t.promoApplied?("Promo "+t.promoCode+" ("+t.promoPct+"% off)"):("Discounts"+(t.addlPct>0?" (incl "+t.addlPct+"% add'l)":"")),"-"+money(t.saved)]);
   if(t.topUp>0)rowsT.push(["Order minimum top-up",money(t.topUp)]);
   const shipVal=t.pickup?"Free (pickup)":(t.account?"Billed to your account":(t.shipping>0?money(t.shipping):"quoted separately"));
   rowsT.push(["Est. shipping ("+(t.pickup?"pickup":t.account?"your account":SHIP_SPEEDS[t.speed].label)+")",shipVal]);
@@ -1084,7 +1132,7 @@ async function ensureQuoteSaved(){
       body:JSON.stringify({token:INTERNAL_TOKEN,
         parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,tumble:!!p.tumble,drawingName:p.drawingName||"",thumb:"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
-        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,dueDate:REP_DUE||"",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
+        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,promo:PROMO_CODE,dueDate:REP_DUE||"",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
     const d=await r.json().catch(()=>({}));
     if(d.ok){LOADED_QUOTE_ID=d.id;return d.id;}
   }catch(e){}
@@ -1118,7 +1166,7 @@ async function startPayment(){
         shipAccount:(shipSpeed()==="account")?v("sAcct"):"",
         shipAddress:(shipSpeed()==="pickup")?"Pickup at 3DPX (Chicago, IL)":[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "),
         matCert:document.getElementById("matCert").checked,
-        quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,source:INTERNAL?"internal":"web",dueDate:REP_DUE||"",
+        quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,promo:PROMO_CODE,source:INTERNAL?"internal":"web",dueDate:REP_DUE||"",
         returnUrl:document.referrer||location.href})});
     const data=await r.json().catch(()=>({}));
     if(data.url){ try{window.top.location.href=data.url;}catch(e){window.location.href=data.url;} return; }
@@ -1160,7 +1208,7 @@ async function submitPO(approved){
         zip:v("sZip"), shipSpeed:shipSpeed(),
         carrier:(shipSpeed()==="account")?v("sCarrier"):"", shipAccount:(shipSpeed()==="account")?v("sAcct"):"",
         shipAddress:(shipSpeed()==="pickup")?"Pickup at 3DPX (Chicago, IL)":[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "),
-        matCert:document.getElementById("matCert").checked,quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,source:INTERNAL?"internal":"web",dueDate:REP_DUE||""})});
+        matCert:document.getElementById("matCert").checked,quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,promo:PROMO_CODE,source:INTERNAL?"internal":"web",dueDate:REP_DUE||""})});
     const data=await r.json().catch(()=>({}));
     if(data.ok){
       const b=document.getElementById("payBanner");
@@ -1227,7 +1275,7 @@ async function saveQuote(){
       body:JSON.stringify({token:INTERNAL_TOKEN,id,
         parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,tumble:!!p.tumble,drawingName:p.drawingName||"",thumb:p.thumb||"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
-        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,dueDate:REP_DUE||"",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
+        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,promo:PROMO_CODE,dueDate:REP_DUE||"",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
     const data=await r.json().catch(()=>({}));
     if(data.ok){
       const link=location.origin+"/?quote="+data.id;
@@ -1257,6 +1305,7 @@ async function loadQuote(id){
     const data=await r.json().catch(()=>({}));
     if(!data.ok||!data.quote)return;
     const q=data.quote;LOADED_QUOTE_ID=q.id;ADDL_DISC=Math.max(0,+q.addlDisc||0);REP_DUE=q.dueDate||"";
+    {const pr=resolvePromo(q.promo||"");PROMO_CODE=pr.pct>0?pr.code:"";PROMO_PCT=pr.pct;const pel=document.getElementById("promoCode");if(pel){pel.value=PROMO_CODE;}}
     const set=(k,val)=>{const el=document.getElementById(k);if(el&&val!=null&&val!=="")el.value=val;};
     if(q.cust){set("cName",q.cust.name);set("cCo",q.cust.company);set("cEmail",q.cust.email);set("cPhone",q.cust.phone);}
     set("sRegion",q.region);set("sZip",q.zip);set("sSpeed",q.shipSpeed);
