@@ -76,6 +76,7 @@ export default async (req) => {
   // Build the customer link + track in the SLS Quotes sheet (best-effort; never fails the save).
   const origin = /^https?:\/\/[^\s]+$/.test(String(body.origin || "")) ? String(body.origin).replace(/\/+$/, "") : "";
   const link = origin ? (origin + "/?quote=" + id) : ("/?quote=" + id);
+  const editLink = origin ? (origin + "/?internal=1&quote=" + id) : ("/?internal=1&quote=" + id);  // rep one-click edit
   const pieces = parts.reduce((s, p) => s + Math.max(1, parseInt(p.qty) || 1), 0);
   const summary = parts.map(p => (Math.max(1, parseInt(p.qty) || 1) + "× " + (p.name || "part"))).join("; ").slice(0, 240);
   const status = reuse ? "Revised" : (authed ? "Sent" : "Draft");
@@ -84,7 +85,7 @@ export default async (req) => {
       quoteId: id, status, source: body.source === "internal" ? "Internal" : "Web",
       customer: record.cust.name, company: record.cust.company, email: record.cust.email, phone: record.cust.phone,
       total: (body.total != null && body.total !== "") ? +body.total : "",
-      pieces, items: parts.length, delivery: record.shipSpeed, link, notes: summary,
+      pieces, items: parts.length, delivery: record.shipSpeed, link, editLink, notes: summary,
       rowId: record.quoteRowId,
     });
     if (rowId && rowId !== record.quoteRowId) {

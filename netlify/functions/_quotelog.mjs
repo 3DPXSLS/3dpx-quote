@@ -17,6 +17,7 @@ const C = {
   delivery: 7363762093068164,
   source:   1734262558855044,
   link:     6237862186225540,
+  editLink: 1889725879455620,
   created:  3986062372540292,
   updated:  8489661999910788,
   notes:    326887675301764,
@@ -43,6 +44,7 @@ export async function logQuote(q) {
     cell(C.delivery, q.delivery),
     cell(C.source, q.source),
     cell(C.link, q.link),
+    cell(C.editLink, q.editLink),
     cell(C.notes, q.notes),
     cell(C.updated, today),
   ].filter(c => c.value !== "" && c.value != null);
