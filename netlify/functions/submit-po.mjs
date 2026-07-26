@@ -5,6 +5,7 @@
 
 import { sendOrderEmail } from "./_notify.mjs";
 import { logOrder } from "./_orderlog.mjs";
+import { attachOrderFiles } from "./_attach.mjs";
 import { shipCells } from "./_shipmap.mjs";
 
 const SLS_JOBS_SHEET = "7474902212077444";
@@ -197,7 +198,7 @@ export default async (req) => {
     company: body.company || body.name, contact: contactVal, price,
     pieces: totalParts, delivery: shipMethod, due, payment: payLabel, notes,
   });
-  await logOrder({
+  const logRow = await logOrder({
     orderNo: webNo, type: approved ? "Approved" : "PO", source: body.source === "internal" ? "Internal" : "Web",
     company: body.company || body.name, contact: body.name, email: body.email, phone: body.phone,
     amount: price, pieces: totalParts, volume: totalVol, colors: colorVals.join(", "),
@@ -205,26 +206,11 @@ export default async (req) => {
     invoiceDue: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),  // Net 30 (PO + Approved)
   });
 
-  // Attach uploaded STL(s) + PO doc (best-effort).
+  // Attach uploaded STL(s) + PO doc to the SLS Jobs row AND the Web Orders Log row (best-effort).
   if (rowId && body.orderNo) {
-    try {
-      const { getStore } = await import("@netlify/blobs");
-      const store = getStore("orders");
-      const listing = await store.list({ prefix: body.orderNo + "/" });
-      for (const b of (listing.blobs || [])) {
-        try {
-          const bytes = await store.get(b.key, { type: "arrayBuffer" });
-          if (!bytes) continue;
-          const meta = await store.getMetadata(b.key).catch(() => null);
-          const fname = (meta && meta.metadata && meta.metadata.name) || b.key.split("__").pop() || "file";
-          const fd = new FormData();
-          fd.append("file", new Blob([bytes], { type: "application/octet-stream" }), fname);
-          const ar = await fetch("https://api.smartsheet.com/2.0/sheets/" + sheetId + "/rows/" + rowId + "/attachments", {
-            method: "POST", headers: { Authorization: "Bearer " + token }, body: fd });
-          if (ar.ok) await store.delete(b.key); else console.log("PO attach failed:", ar.status, await ar.text());
-        } catch (e2) { console.log("PO attach item failed:", e2.message); }
-      }
-    } catch (e) { console.log("PO attach step failed:", e.message); }
+    const targets = [{ sheetId, rowId }];
+    if (logRow && logRow.rowId) targets.push(logRow);
+    await attachOrderFiles(token, body.orderNo, targets);
   }
 
   return json({ ok: true, order: po });

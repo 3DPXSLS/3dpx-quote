@@ -28,7 +28,7 @@ const C = {
 
 export async function logOrder(o) {
   const token = process.env.SMARTSHEET_TOKEN;
-  if (!token) return false;
+  if (!token) return null;
   const sheetId = process.env.ORDERS_LOG_SHEET_ID || LOG_SHEET;
   const cell = (id, v) => ({ columnId: id, value: v == null ? "" : v, strict: false });
   const cells = [
@@ -59,7 +59,9 @@ export async function logOrder(o) {
       headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
       body: JSON.stringify([{ toTop: true, cells }]),
     });
-    if (!r.ok) { console.log("orderlog failed:", r.status, await r.text()); return false; }
-    return true;
-  } catch (e) { console.log("orderlog error:", e.message); return false; }
+    if (!r.ok) { console.log("orderlog failed:", r.status, await r.text()); return null; }
+    const j = await r.json().catch(() => null);
+    const rowId = j && j.result && j.result[0] && j.result[0].id;
+    return rowId ? { rowId, sheetId } : null;
+  } catch (e) { console.log("orderlog error:", e.message); return null; }
 }
