@@ -45,7 +45,7 @@ function zoneMult(zip, region) {
 }
 const FINISH = { dyePct:5, vsPct:30, vsMin:15, tumbFee:1.50, insertFee:1.50 };
 const insCount = p => (p && p.inserts && +p.insertQty > 0) ? Math.floor(+p.insertQty) : 0;
-const PROMO = { SAVE10:10, SAVE5:5 };  // customer promo codes → % off list (keep in sync with the widget PROMO_CODES)
+const PROMO = { "3DPXSAVE10":10, "3DPXSAVE5":5 };  // customer promo codes → % off list (keep in sync with the widget PROMO_CODES)
 const SHIP_SPEEDS = {
   ground:    { label:"Ground shipping", base:12.5, perLb:1.15, min:12.5 },
   expedited: { label:"Expedited",       base:26,   perLb:2.60, min:26 },

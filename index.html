@@ -210,7 +210,7 @@
       <div style="font-weight:700;color:#1b2a4a;margin-bottom:2px">🎟️ Promo code (optional)</div>
       <div style="font-size:12.5px;color:#42506b;margin-bottom:10px">Have a code? Enter it to apply your discount.</div>
       <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">
-        <input id="promoCode" placeholder="e.g. SAVE10" style="max-width:220px;text-transform:uppercase" autocomplete="off">
+        <input id="promoCode" placeholder="Enter code" style="max-width:220px;text-transform:uppercase" autocomplete="off">
         <div id="promoMsg" style="font-size:12.5px;padding:9px 0"></div>
       </div>
     </div>
@@ -435,7 +435,7 @@ function unitPrice(p){
 }
 let ADDL_DISC=0;  // rep-set additional discount ($ off), internal only
 let REP_DUE="";   // rep-set custom due date (YYYY-MM-DD), internal only; blank = auto from lead time
-const PROMO_CODES={SAVE10:10, SAVE5:5};  // customer promo codes → % off LIST price. Editable. Customer gets the BETTER of the promo or the automatic discounts, not both.
+const PROMO_CODES={"3DPXSAVE10":10, "3DPXSAVE5":5};  // customer promo codes → % off LIST price. Editable. Customer gets the BETTER of the promo or the automatic discounts, not both.
 let PROMO_CODE="", PROMO_PCT=0;          // resolved from the code the customer typed (0 = none/invalid)
 function resolvePromo(code){const k=String(code||"").trim().toUpperCase();return {code:k, pct:PROMO_CODES[k]||0};}
 // Per-line display factor: multiplies the qty-discounted unit/line so the shown prices sum to the order total in every mode (auto discounts, rep additional, or promo).
