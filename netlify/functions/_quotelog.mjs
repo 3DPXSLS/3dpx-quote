@@ -2,6 +2,7 @@
 // and re-open a customer's quote by name/email/quote number. Upserts a row keyed by rowId (which
 // we store back in the quote's Blob record), so editing a quote updates the SAME row. No-op without
 // SMARTSHEET_TOKEN. Sheet id overridable via QUOTES_SHEET_ID env. Never throws.
+import { getStore } from "@netlify/blobs";
 
 const QUOTES_SHEET = "8909229715836804";
 const C = {
@@ -62,4 +63,25 @@ export async function logQuote(q) {
     const rowId = j && j.result && j.result[0] && j.result[0].id;
     return rowId || (q.rowId || null);
   } catch (e) { console.log("quotelog error:", e.message); return q.rowId || null; }
+}
+
+// When an order is placed off a saved quote, flip that quote's row to "Ordered". Looks up the
+// quote's Smartsheet row id from its Blob record (stored by save-quote). Best-effort, never throws.
+export async function markQuoteOrdered(quoteId) {
+  const token = process.env.SMARTSHEET_TOKEN;
+  if (!token || !quoteId || !/^Q-[A-Za-z0-9]{4,12}$/.test(quoteId)) return false;
+  let rowId = null;
+  try { const q = await getStore("orders").get("Q-QUOTES/" + quoteId + ".json", { type: "json" }); rowId = q && q.quoteRowId; } catch (e) {}
+  if (!rowId) return false;
+  const sheetId = process.env.QUOTES_SHEET_ID || QUOTES_SHEET;
+  const today = new Date().toISOString().slice(0, 10);
+  try {
+    const r = await fetch("https://api.smartsheet.com/2.0/sheets/" + sheetId + "/rows", {
+      method: "PUT",
+      headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify([{ id: rowId, cells: [{ columnId: C.status, value: "Ordered" }, { columnId: C.updated, value: today }] }]),
+    });
+    if (!r.ok) { console.log("markQuoteOrdered failed:", r.status, await r.text()); return false; }
+    return true;
+  } catch (e) { console.log("markQuoteOrdered error:", e.message); return false; }
 }

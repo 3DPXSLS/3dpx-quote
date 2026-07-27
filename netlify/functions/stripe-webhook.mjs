@@ -9,6 +9,7 @@
 import crypto from "node:crypto";
 import { sendOrderEmail } from "./_notify.mjs";
 import { logOrder } from "./_orderlog.mjs";
+import { markQuoteOrdered } from "./_quotelog.mjs";
 import { attachOrderFiles } from "./_attach.mjs";
 import { shipCells } from "./_shipmap.mjs";
 
@@ -121,6 +122,8 @@ export default async (req) => {
     if (logRow && logRow.rowId) targets.push(logRow);
     await attachOrderFiles(token, m.order_no, targets);
   }
+
+  if (m.quote_id) await markQuoteOrdered(m.quote_id);  // flip the source quote to "Ordered"
 
   return new Response("ok", { status: 200 });
 };

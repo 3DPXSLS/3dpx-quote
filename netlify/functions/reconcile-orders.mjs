@@ -11,6 +11,7 @@
 
 import { sendOrderEmail } from "./_notify.mjs";
 import { logOrder } from "./_orderlog.mjs";
+import { markQuoteOrdered } from "./_quotelog.mjs";
 import { attachOrderFiles } from "./_attach.mjs";
 import { shipCells } from "./_shipmap.mjs";
 
@@ -146,6 +147,7 @@ async function createRow(s, sheetId, token) {
     contact: contactVal, price: subtotal, tax: taxAmt, pieces: m.total_parts,
     delivery: m.ship_method, due, payment: "Paid via Stripe", notes,
   });
+  if (m.quote_id) await markQuoteOrdered(m.quote_id);  // flip the source quote to "Ordered"
   return true;
 }
 

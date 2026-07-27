@@ -5,6 +5,7 @@
 
 import { sendOrderEmail } from "./_notify.mjs";
 import { logOrder } from "./_orderlog.mjs";
+import { markQuoteOrdered } from "./_quotelog.mjs";
 import { attachOrderFiles } from "./_attach.mjs";
 import { shipCells } from "./_shipmap.mjs";
 
@@ -214,6 +215,8 @@ export default async (req) => {
     if (logRow && logRow.rowId) targets.push(logRow);
     await attachOrderFiles(token, body.orderNo, targets);
   }
+
+  if (body.quoteId) await markQuoteOrdered(body.quoteId);  // flip the source quote to "Ordered"
 
   return json({ ok: true, order: po });
 };
