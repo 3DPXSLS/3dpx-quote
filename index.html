@@ -394,7 +394,8 @@ const FINISH = {  // finishing add-ons (stackable). Bead blast is standard & inc
   dyePct:5, dyeDays:1,          // Dyed black: +5%, +1 business day
   vsPct:30,  vsMin:15, vsDays:1,// Vapor smooth: +30% ($15/part floor), +1 business day
   tumbFee:1.50, tumbDays:1,     // Tumble (standard): flat $1.50 per piece, +1 business day
-  insertFee:1.50, insertDays:1  // Threaded inserts: $1.50 per insert × count per piece, +1 business day
+  insertFee:1.50, insertDays:1, // Threaded inserts: $1.50 per insert × count per piece, +1 business day
+  tapFee:1.50, tapDays:1        // Tapped holes: $1.50 per hole × count per piece, +1 business day
 };
 /* Dye colors (all +5% / +1 day, same as black). hex is used for the 3D preview. */
 const COLORS={
@@ -409,11 +410,12 @@ function partColor(p){return (p&&p.color&&COLORS[p.color])?p.color:"natural";}
 function colorLabel(p){const c=partColor(p);return c==="natural"?"White (Natural)":("Dyed "+COLORS[c].label);}
 function partHex(p){return COLORS[partColor(p)].hex;}
 function insertCount(p){return (p&&p.inserts&&+p.insertQty>0)?Math.floor(+p.insertQty):0;}
-function finishLabel(p){const a=[];if(p.vs)a.push("Vapor smooth");if(p.tumble)a.push("Tumbled");if(insertCount(p))a.push(insertCount(p)+" insert"+(insertCount(p)===1?"":"s"));if(p.dye)a.push("Dyed "+COLORS[partColor(p)].label);return a.length?a.join(" + "):"Standard";}
+function tapCount(p){return (p&&p.tapped&&+p.tapQty>0)?Math.floor(+p.tapQty):0;}
+function finishLabel(p){const a=[];if(p.vs)a.push("Vapor smooth");if(p.tumble)a.push("Tumbled");if(insertCount(p))a.push(insertCount(p)+" insert"+(insertCount(p)===1?"":"s"));if(tapCount(p))a.push(tapCount(p)+" tapped hole"+(tapCount(p)===1?"":"s"));if(p.dye)a.push("Dyed "+COLORS[partColor(p)].label);return a.length?a.join(" + "):"Standard";}
 /* Lead time from TOTAL order volume (your template: <3000cc = base days; else vol/divisor + base), plus finishing. */
 function orderBaseDays(){let tv=0;parts.forEach(p=>tv+=(p.vol||0)*(p.qty||0));
   const b=tv<RULES.leadThreshCc?RULES.leadBaseDays:(tv/RULES.leadDivisor+RULES.leadBaseDays);return Math.ceil(b);}
-function partFinishDays(p){return (p.dye?FINISH.dyeDays:0)+(p.vs?FINISH.vsDays:0)+(p.tumble?FINISH.tumbDays:0)+(insertCount(p)?FINISH.insertDays:0);}
+function partFinishDays(p){return (p.dye?FINISH.dyeDays:0)+(p.vs?FINISH.vsDays:0)+(p.tumble?FINISH.tumbDays:0)+(insertCount(p)?FINISH.insertDays:0)+(tapCount(p)?FINISH.tapDays:0);}
 function leadDays(p){return orderBaseDays()+partFinishDays(p);}
 function leadLabel(p){const d=leadDays(p);return d+(d===1?" day":" days");}
 function orderLeadDays(){let m=0;parts.forEach(p=>{const f=partFinishDays(p);if(f>m)m=f;});return orderBaseDays()+m;}
@@ -434,6 +436,7 @@ function unitPrice(p){
   if(p.vs)  u+=Math.max(base*FINISH.vsPct/100, FINISH.vsMin);
   if(p.tumble) u+=FINISH.tumbFee;                 // tumble: flat fee per piece
   if(insertCount(p)) u+=FINISH.insertFee*insertCount(p);  // inserts: $/insert × count, per piece
+  if(tapCount(p)) u+=FINISH.tapFee*tapCount(p);           // tapped holes: $/hole × count, per piece
   return u;
 }
 let ADDL_DISC=0;  // rep-set additional discount ($ off), internal only
@@ -660,7 +663,7 @@ function disposeViewer(id){const v=viewers[id];if(!v)return;try{v.renderer.dispo
 function partFromGeom(file,buf,r){
   return {id:++pid,name:file.name.replace(/\.(stl|stp|step)$/i,""),fileName:file.name,fileBuf:buf,
     x:+r.x.toFixed(1),y:+r.y.toFixed(1),z:+r.z.toFixed(1),vol:+(r.volMM3/1000).toFixed(2),
-    qty:1,color:"natural",dye:false,vs:false,tumble:false,inserts:false,insertQty:1,geo:r.pos,area:r.areaMM2,thumb:renderThumb(r.pos)};
+    qty:1,color:"natural",dye:false,vs:false,tumble:false,inserts:false,insertQty:1,tapped:false,tapQty:1,geo:r.pos,area:r.areaMM2,thumb:renderThumb(r.pos)};
 }
 function handleFiles(files){[...files].forEach(file=>{
   const ext=(file.name.split(".").pop()||"").toLowerCase();
@@ -672,7 +675,7 @@ function handleFiles(files){[...files].forEach(file=>{
         const r=await stepToGeom(buf); if(!r.count) throw 0;
         if(r.bodies>1 && r.overlap){
           parts.push({id:++pid,name:file.name.replace(/\.(stp|step)$/i,""),fileName:file.name,fileBuf:buf,
-            x:+r.x.toFixed(1),y:+r.y.toFixed(1),z:+r.z.toFixed(1),vol:0,qty:1,color:"natural",dye:false,vs:false,tumble:false,inserts:false,insertQty:1,geo:null,area:0,thumb:renderThumb(r.pos),manual:true,assembly:r.bodies});
+            x:+r.x.toFixed(1),y:+r.y.toFixed(1),z:+r.z.toFixed(1),vol:0,qty:1,color:"natural",dye:false,vs:false,tumble:false,inserts:false,insertQty:1,tapped:false,tapQty:1,geo:null,area:0,thumb:renderThumb(r.pos),manual:true,assembly:r.bodies});
           render();
           alert(file.name+" contains "+r.bodies+" overlapping bodies, so we can't auto-measure its volume reliably (assemblies can double-count shared material). It's added as a manual-quote item — our team will confirm the price. Tip: save each solid as its own STEP file for an instant quote.");
           return;
@@ -680,7 +683,7 @@ function handleFiles(files){[...files].forEach(file=>{
         const part=partFromGeom(file,buf,r); if(r.bodies>1) part.assembly=r.bodies; parts.push(part); createViewer(part); render();
       }catch(err){
         parts.push({id:++pid,name:file.name.replace(/\.(stp|step)$/i,""),fileName:file.name,fileBuf:buf,
-          x:0,y:0,z:0,vol:0,qty:1,color:"natural",dye:false,vs:false,tumble:false,inserts:false,insertQty:1,geo:null,area:0,thumb:null,manual:true});
+          x:0,y:0,z:0,vol:0,qty:1,color:"natural",dye:false,vs:false,tumble:false,inserts:false,insertQty:1,tapped:false,tapQty:1,geo:null,area:0,thumb:null,manual:true});
         render();
         alert("We couldn't auto-measure "+file.name+" (complex STEP). It's added as a manual-quote item — our team will price it, and card checkout is paused until it's priced.");
       }
@@ -736,7 +739,9 @@ function render(){
           <label class="chk"><input type="checkbox" data-k="vs" data-id="${p.id}" ${p.vs?"checked":""}> Vapor smooth (+30%, +1 day)</label>
           <label class="chk"><input type="checkbox" data-k="tumble" data-id="${p.id}" ${p.tumble?"checked":""}> Tumble (+$1.50/part, +1 day)</label>
           <label class="chk"><input type="checkbox" data-k="inserts" data-id="${p.id}" ${p.inserts?"checked":""}> Threaded inserts (+$1.50 ea, +1 day)</label>
-          <div style="${p.inserts?"":"display:none"};margin:2px 0 0 22px;font-size:12px;color:var(--ink)">Number of inserts per part: <input type="number" min="1" step="1" data-k="insertQty" data-id="${p.id}" value="${p.insertQty||1}" style="width:64px;padding:4px 6px"></div></div>
+          <div style="${p.inserts?"":"display:none"};margin:2px 0 0 22px;font-size:12px;color:var(--ink)">Number of inserts per part: <input type="number" min="1" step="1" data-k="insertQty" data-id="${p.id}" value="${p.insertQty||1}" style="width:64px;padding:4px 6px"></div>
+          <label class="chk"><input type="checkbox" data-k="tapped" data-id="${p.id}" ${p.tapped?"checked":""}> Tapped holes (+$1.50 ea, +1 day)</label>
+          <div style="${p.tapped?"":"display:none"};margin:2px 0 0 22px;font-size:12px;color:var(--ink)">Number of tapped holes per part: <input type="number" min="1" step="1" data-k="tapQty" data-id="${p.id}" value="${p.tapQty||1}" style="width:64px;padding:4px 6px"></div></div>
         <div class="o"><label>Drawing / spec (optional)</label>
           <input type="file" accept="application/pdf,image/*" data-draw="${p.id}">
           <div style="font-size:11px;margin-top:3px">${p.drawingName?('<span style="color:#1e7d52">✓ '+esc(p.drawingName)+' attached</span>'):'<span style="color:#8a95a8">PDF or image — call out critical dimensions, inserts, tolerances</span>'}</div>
@@ -764,7 +769,7 @@ function render(){
       const k=inp.dataset.k;
       if(inp.type==="checkbox") p[k]=inp.checked;
       else if(k==="override"){const val=(inp.value||"").trim();const n=parseFloat(val);p.override=(val===""||!(n>0))?null:n;}
-      else p[k]=(k==="qty"||k==="insertQty")?Math.max(1,parseInt(inp.value)||1):inp.value;
+      else p[k]=(k==="qty"||k==="insertQty"||k==="tapQty")?Math.max(1,parseInt(inp.value)||1):inp.value;
       if(k==="color") p.dye=(p.color!=="natural");
       render();});
   });
@@ -968,7 +973,7 @@ function buildTravelerPDF(orderNo,opts){
   const gen=new Date().toLocaleString("en-US",{year:"numeric",month:"2-digit",day:"2-digit",hour:"numeric",minute:"2-digit"});
   const type=opts.po?("Web order (PO "+opts.po+")"):"Web order (card)";
   const cust=[v("cName"),v("cCo")].filter(Boolean).join(" — ")||"—";
-  const notesTxt="Bead blast standard. "+(opts.po?("PO "+opts.po+" — verify credit & confirm price before production. "):"")+(v("cEmail")?("Contact: "+v("cEmail")+". "):"")+(parts.some(p=>p.dye)?"Dyed parts per Color column. ":"")+(parts.some(p=>p.vs)?"Vapor smoothing required. ":"")+(parts.some(p=>p.tumble)?"Tumble finish required. ":"")+(parts.some(p=>insertCount(p))?"Threaded inserts to be installed — see per-part count. ":"");
+  const notesTxt="Bead blast standard. "+(opts.po?("PO "+opts.po+" — verify credit & confirm price before production. "):"")+(v("cEmail")?("Contact: "+v("cEmail")+". "):"")+(parts.some(p=>p.dye)?"Dyed parts per Color column. ":"")+(parts.some(p=>p.vs)?"Vapor smoothing required. ":"")+(parts.some(p=>p.tumble)?"Tumble finish required. ":"")+(parts.some(p=>insertCount(p))?"Threaded inserts to be installed — see per-part count. ":"")+(parts.some(p=>tapCount(p))?"Tapped holes required — see per-part count. ":"");
   const base={theme:"grid",styles:{fontSize:9.5,cellPadding:5,halign:"center",textColor:INK,lineColor:[210,216,226]},headStyles:{fillColor:NAVY,textColor:[255,255,255],fontStyle:"bold",halign:"center"},margin:{left:M,right:M},tableWidth:CW};
   parts.forEach((p,idx)=>{
     if(idx>0)doc.addPage();
@@ -997,7 +1002,7 @@ function buildTravelerPDF(orderNo,opts){
     doc.autoTable(Object.assign({},base,{startY:doc.lastAutoTable.finalY+8,head:[["Process","Material","Color"]],body:[["SLS (Selective Laser Sintering)","Nylon 12 (PA12)",clr]]}));
     doc.autoTable(Object.assign({},base,{startY:doc.lastAutoTable.finalY+8,head:[["Finish","Inspection"]],body:[[finishLabel(p),"Standard"]]}));
     doc.autoTable({startY:doc.lastAutoTable.finalY+8,head:[["Notes"]],body:[[((notesTxt||"")+(p.drawingName?("Reference drawing attached: "+p.drawingName+" — verify critical dimensions / insert requirements. "):"")).trim()||"—"]],theme:"grid",styles:{fontSize:9.5,cellPadding:5,halign:"left",textColor:INK,lineColor:[210,216,226]},headStyles:{fillColor:NAVY,textColor:[255,255,255],fontStyle:"bold",halign:"center"},margin:{left:M,right:M},tableWidth:CW});
-    const ops=["Printed"];if(p.dye)ops.push("Dyed ("+clr+")");if(p.vs)ops.push("Vapor smoothed");if(p.tumble)ops.push("Tumbled");if(insertCount(p))ops.push("Install inserts (×"+insertCount(p)+")");ops.push("Drill / tap","Inspected");if(p.drawingName)ops.push("Critical dims verified to drawing");ops.push("Shipped / picked up");
+    const ops=["Printed"];if(p.dye)ops.push("Dyed ("+clr+")");if(p.vs)ops.push("Vapor smoothed");if(p.tumble)ops.push("Tumbled");if(insertCount(p))ops.push("Install inserts (×"+insertCount(p)+")");if(tapCount(p))ops.push("Tap holes (×"+tapCount(p)+")");ops.push("Inspected");if(p.drawingName)ops.push("Critical dims verified to drawing");ops.push("Shipped / picked up");
     doc.autoTable({startY:doc.lastAutoTable.finalY+14,head:[["Production checklist","Done"]],body:ops.map(o=>[o,""]),theme:"grid",styles:{fontSize:9.5,cellPadding:6,textColor:INK,lineColor:[210,216,226]},headStyles:{fillColor:HEAD,textColor:NAVY,fontStyle:"bold"},columnStyles:{0:{cellWidth:CW-70,halign:"left"},1:{cellWidth:70,halign:"center"}},margin:{left:M,right:M}});
     const ph=doc.internal.pageSize.getHeight();
     doc.setFontSize(8);doc.setTextColor(GREY[0],GREY[1],GREY[2]);doc.setFont("helvetica","normal");
@@ -1084,7 +1089,7 @@ function buildQuotePDF(orderNo,opts){
   let my=y; meta.forEach(m=>{doc.setFont("helvetica","bold");doc.text(m[0],W-M-150,my);doc.setFont("helvetica","normal");doc.text(String(m[1]),W-M,my,{align:"right"});my+=14;});
   y=Math.max(py,my)+8;
   const rows=parts.map((p,i)=>{const c=lineCalc(p);const ldf=lineFactor(c,t);const clr=p.dye?COLORS[partColor(p)].label:"White (Natural)";
-    const desc="SLS · Nylon 12 (PA12) · "+(p.dye?("Dyed "+clr):"White (Natural)")+(p.vs?" · Vapor smoothed":"")+(p.tumble?" · Tumbled":"")+(insertCount(p)?(" · "+insertCount(p)+" inserts"):"")+(c.manual?" · quote pending":"");
+    const desc="SLS · Nylon 12 (PA12) · "+(p.dye?("Dyed "+clr):"White (Natural)")+(p.vs?" · Vapor smoothed":"")+(p.tumble?" · Tumbled":"")+(insertCount(p)?(" · "+insertCount(p)+" inserts"):"")+(tapCount(p)?(" · "+tapCount(p)+" tapped"):"")+(c.manual?" · quote pending":"");
     const unit=c.manual?"—":money(c.net*ldf), line=c.manual?"manual quote":money(c.lineNet*ldf);
     return [String(i+1),"",p.name,desc,String(p.qty),unit,line];});
   doc.autoTable({startY:y,head:[["#","","Item","Description","Qty","Unit","Line"]],body:rows,
@@ -1148,7 +1153,7 @@ async function ensureQuoteSaved(){
   try{
     const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({token:INTERNAL_TOKEN,
-        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,drawingName:p.drawingName||"",thumb:"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual})),
+        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,drawingName:p.drawingName||"",thumb:"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
         matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,promo:PROMO_CODE,dueDate:REP_DUE||"",total:orderTotals().total,origin:location.origin,source:INTERNAL?"internal":"web",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
     const d=await r.json().catch(()=>({}));
@@ -1175,7 +1180,7 @@ async function startPayment(){
     const r=await fetch(CHECKOUT_URL,{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({
         orderNo,
-        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,dye:p.dye,vs:p.vs,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,color:p.color,manual:!!p.manual})),
+        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,dye:p.dye,vs:p.vs,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,color:p.color,manual:!!p.manual})),
         name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone"),
         region:(document.getElementById("sRegion")||{}).value||"us",
         zip:v("sZip"),
@@ -1220,7 +1225,7 @@ async function submitPO(approved){
     const r=await fetch("/.netlify/functions/submit-po",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({
         orderNo, po, approved:!!approved,
-        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,dye:p.dye,vs:p.vs,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,color:p.color,manual:!!p.manual})),
+        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,dye:p.dye,vs:p.vs,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,color:p.color,manual:!!p.manual})),
         name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone"),
         region:(document.getElementById("sRegion")||{}).value||"us",
         zip:v("sZip"), shipSpeed:shipSpeed(),
@@ -1291,7 +1296,7 @@ async function saveQuote(){
   try{
     const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({token:INTERNAL_TOKEN,id,
-        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,drawingName:p.drawingName||"",thumb:p.thumb||"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual})),
+        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,drawingName:p.drawingName||"",thumb:p.thumb||"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
         matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,promo:PROMO_CODE,dueDate:REP_DUE||"",total:orderTotals().total,origin:location.origin,source:INTERNAL?"internal":"web",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
     const data=await r.json().catch(()=>({}));
@@ -1333,7 +1338,7 @@ async function customerSaveQuote(){
   try{
     const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({id,
-        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,drawingName:p.drawingName||"",thumb:p.thumb||"",manual:!!p.manual})),
+        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,drawingName:p.drawingName||"",thumb:p.thumb||"",manual:!!p.manual})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
         matCert:document.getElementById("matCert").checked,promo:PROMO_CODE,total:orderTotals().total,origin:location.origin,source:"web",name:v("cName"),company:v("cCo"),email:email,phone:v("cPhone")})});
     const data=await r.json().catch(()=>({}));
@@ -1359,7 +1364,7 @@ async function loadQuote(id){
     set("sRegion",q.region);set("sZip",q.zip);set("sSpeed",q.shipSpeed);
     if(document.getElementById("matCert"))document.getElementById("matCert").checked=!!q.matCert;
     parts.length=0;
-    (q.parts||[]).forEach(p=>{parts.push({id:++pid,name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color||"natural",dye:!!p.dye,vs:!!p.vs,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:Math.max(1,+p.insertQty||1),drawingName:p.drawingName||"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual,geo:null,area:0,thumb:p.thumb||null,fileBuf:null});});
+    (q.parts||[]).forEach(p=>{parts.push({id:++pid,name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color||"natural",dye:!!p.dye,vs:!!p.vs,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:Math.max(1,+p.insertQty||1),tapped:!!p.tapped,tapQty:Math.max(1,+p.tapQty||1),drawingName:p.drawingName||"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual,geo:null,area:0,thumb:p.thumb||null,fileBuf:null});});
     toggleShip();render();
     const b=document.getElementById("payBanner");
     if(b){b.style.display="block";b.style.background="#eef4ff";b.style.border="1px solid #b9cdf0";b.style.color="#1b2a4a";

@@ -44,8 +44,9 @@ function zoneMult(zip, region) {
   const m = Math.max(RULES.zoneMultMin, Math.min(RULES.zoneMultMax, 1 + (zone-4)*RULES.zoneStep));
   return Math.round(m*1000)/1000;
 }
-const FINISH = { dyePct:5, vsPct:30, vsMin:15, tumbFee:1.50, insertFee:1.50 };
+const FINISH = { dyePct:5, vsPct:30, vsMin:15, tumbFee:1.50, insertFee:1.50, tapFee:1.50 };
 const insCount = p => (p && p.inserts && +p.insertQty > 0) ? Math.floor(+p.insertQty) : 0;
+const tapCnt  = p => (p && p.tapped && +p.tapQty > 0) ? Math.floor(+p.tapQty) : 0;
 const PROMO = { "3DPXSAVE10":10, "3DPXSAVE5":5 };  // customer promo codes → % off list (keep in sync with the widget PROMO_CODES)
 const SHIP_SPEEDS = {
   ground:    { label:"Ground shipping", base:12.5, perLb:1.15, min:12.5 },
@@ -84,6 +85,7 @@ function unitPrice(p) {
   if (p.vs)  u += Math.max(base*FINISH.vsPct/100, FINISH.vsMin);
   if (p.tumble) u += FINISH.tumbFee;
   if (insCount(p)) u += FINISH.insertFee * insCount(p);
+  if (tapCnt(p))  u += FINISH.tapFee * tapCnt(p);
   return u;
 }
 function orderTotal(parts, region, matCert, speed, zip, addl, promoPct) {
@@ -114,7 +116,7 @@ function orderTotal(parts, region, matCert, speed, zip, addl, promoPct) {
 function leadDaysCalc(parts) {
   let tv = 0; for (const p of parts) tv += (p.vol||0)*Math.max(1, parseInt(p.qty)||1);
   let base = tv < 3000 ? 3 : Math.ceil(tv/4500 + 3);
-  let fin = 0; for (const p of parts) { const ff = (p.dye?1:0)+(p.vs?1:0)+(p.tumble?1:0)+(insCount(p)?1:0); if (ff>fin) fin=ff; }
+  let fin = 0; for (const p of parts) { const ff = (p.dye?1:0)+(p.vs?1:0)+(p.tumble?1:0)+(insCount(p)?1:0)+(tapCnt(p)?1:0); if (ff>fin) fin=ff; }
   return base + fin;
 }
 
@@ -149,7 +151,7 @@ export default async (req) => {
   const CLR = { natural:"White", black:"Black", blue:"Blue", green:"Green", red:"Red", yellow:"Yellow" };
   const colorVals = [...new Set(parts.map(p => (p.dye && CLR[p.color]) ? CLR[p.color] : "White"))];
 
-  const summary = parts.map(p => (p.qty + "x " + p.name + " " + p.x + "x" + p.y + "x" + p.z + "mm" + (p.vs?" +vapor":"") + (p.tumble?" +tumble":"") + (insCount(p)?(" +"+insCount(p)+"ins"):"") + (p.dye?(" +"+(p.color||"dye")):""))).join("; ");
+  const summary = parts.map(p => (p.qty + "x " + p.name + " " + p.x + "x" + p.y + "x" + p.z + "mm" + (p.vs?" +vapor":"") + (p.tumble?" +tumble":"") + (insCount(p)?(" +"+insCount(p)+"ins"):"") + (tapCnt(p)?(" +"+tapCnt(p)+"tap"):"") + (p.dye?(" +"+(p.color||"dye")):""))).join("; ");
   const acctInfo = (speed==="account") ? (" — " + (body.carrier||"carrier") + " acct " + (body.shipAccount||"(not provided)")) : "";
   const shipMethod = SHIP_SPEEDS[speed].label + (speed==="pickup" ? " (free)" : "") + acctInfo;
   // Keep the WEB- order number as the identifier (like card web orders), tagged with the customer PO.
