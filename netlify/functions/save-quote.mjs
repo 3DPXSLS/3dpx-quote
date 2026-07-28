@@ -45,6 +45,7 @@ export default async (req) => {
       color: String(p.color || "natural"), dye: !!p.dye, vs: !!p.vs, tumble: !!p.tumble,
       inserts: !!p.inserts, insertQty: Math.max(1, parseInt(p.insertQty) || 1),
       tapped: !!p.tapped, tapQty: Math.max(1, parseInt(p.tapQty) || 1),
+      inspect: !!p.inspect, inspQty: Math.max(1, parseInt(p.inspQty) || 1),
       drawingName: p.drawingName ? String(p.drawingName).slice(0,120) : "",
       thumb: (p.thumb && String(p.thumb).startsWith("data:image")) ? String(p.thumb).slice(0, 400000) : "",
       override: authed && (+p.override > 0) ? +p.override : null,   // rep-only; stripped from public saves
