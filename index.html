@@ -238,6 +238,7 @@
 
 <div class="wrap" style="padding-top:0">
   <div class="onudge" id="orderNudge" style="display:none"></div>
+  <div id="bigFileWarn" style="display:none;margin-top:14px;background:#fdecea;border:1.5px solid #e8897e;color:#8a1c12;border-radius:10px;padding:13px 16px;font-size:13.5px;line-height:1.55"></div>
   <div class="summary" id="summary" style="display:none">
     <div class="sumleft">
       <div class="sumhead">Order summary</div>
@@ -564,6 +565,9 @@ function geoToSTL(pos){
 
 /* ---- state ---- */
 let parts=[], pid=0;
+const MAX_UPLOAD=4.5*1024*1024, MAX_UPLOAD_MB=4.5;  // ~4.5 MB effective upload limit (Netlify function body); larger files must be emailed in
+function oversized(p){return !!(p&&p.fileBuf&&p.fileBuf.byteLength>MAX_UPLOAD);}
+function fileMB(buf){return (buf.byteLength/1048576).toFixed(1);}
 function oversize(p){const d=[p.x,p.y,p.z].sort((a,b)=>a-b),b=[BED.x,BED.y,BED.z].sort((a,b)=>a-b);
   return d[0]>b[0]||d[1]>b[1]||d[2]>b[2];}
 // Quick printability heuristics from bounding box + volume-to-surface-area (avg wall proxy = 2V/A).
@@ -708,7 +712,7 @@ function render(){
           ${window.THREE&&p.geo?`<div class="viewwrap"><div class="viewslot" data-view="${p.id}" title="Drag to rotate"></div><div class="viewhint">↻ drag to rotate</div></div>`:(p.thumb?`<img class="thumb" src="${p.thumb}" alt="3D preview of ${esc(p.name)}">`:"")}
           <div style="min-width:0"><div class="nm">${esc(p.name)}</div>
           <div class="dims">${isMan?`STEP file · qty <b>${p.qty}</b> · <span class="save">manual quote</span>${(p.override>0)?` · <span class="save">custom $</span>`:""}`:`${p.x}×${p.y}×${p.z} mm · ${p.vol} cm³ · qty <b>${p.qty}</b>${c.fixed?` · <span class="save">custom $</span>`:(_t0.promoApplied?` · <span class="save">${_t0.promoPct}% promo</span>`:`${c.qp>0?` · <span class="save">${c.qp}% qty</span>`:""}${_valPct>0?` · <span class="save">${_valPct}% order</span>`:""}${_addlPct>0?` · <span class="save">${_addlPct}% add&#39;l</span>`:""}`)}`}</div>
-          ${isMan?`<div class="dims" style="opacity:.7;margin-top:1px">Awaiting manual measurement — STEP attached for review</div>`:`<div class="dims" style="opacity:.7;margin-top:1px">${(p.x/25.4).toFixed(2)}×${(p.y/25.4).toFixed(2)}×${(p.z/25.4).toFixed(2)} in · ${(p.vol*0.0610237).toFixed(2)} in³</div>`}</div>
+          ${isMan?`<div class="dims" style="opacity:.7;margin-top:1px">Awaiting manual measurement — ${oversized(p)?"file too large to upload, please email it":"STEP attached for review"}</div>`:`<div class="dims" style="opacity:.7;margin-top:1px">${(p.x/25.4).toFixed(2)}×${(p.y/25.4).toFixed(2)}×${(p.z/25.4).toFixed(2)} in · ${(p.vol*0.0610237).toFixed(2)} in³</div>`}</div>
         </div>
         <div style="display:flex;align-items:center;gap:12px">
           <div style="text-align:right">
@@ -749,7 +753,7 @@ function render(){
         <div class="crow"><span>Inspection</span><b>Standard</b></div>
       </div>
       ${nudge}
-      <div class="checks">${(p.assembly&&!isMan)?`<span class="flag">⚠ ${p.assembly}-body assembly — volume is the sum of all solids</span>`:""}${checks.length?checks.map(m=>`<span class="flag">⚠ ${m}</span>`).join(""):(!p.assembly?`<span class="ok">✓ Looks printable — no obvious issues</span>`:"")}</div>`;
+      <div class="checks">${oversized(p)?`<span class="flag" style="background:#fdecea;color:#a12318;border-color:#f3b4ad;font-weight:600">⚠ ${isMan?`We couldn't auto-measure this part and its file is ${fileMB(p.fileBuf)} MB — too big to upload (limit ${MAX_UPLOAD_MB} MB). Email <b>${esc(p.fileName||p.name)}</b> to sales@3dpx.com and our team will measure, price &amp; quote it.`:`This part is priced and ready to order — the file is just ${fileMB(p.fileBuf)} MB, too big to upload here (limit ${MAX_UPLOAD_MB} MB). Email <b>${esc(p.fileName||p.name)}</b> to sales@3dpx.com with your order # so we can print it.`}</span>`:""}${(p.assembly&&!isMan)?`<span class="flag">⚠ ${p.assembly}-body assembly — volume is the sum of all solids</span>`:""}${checks.length?checks.map(m=>`<span class="flag">⚠ ${m}</span>`).join(""):((!p.assembly&&!oversized(p))?`<span class="ok">✓ Looks printable — no obvious issues</span>`:"")}</div>`;
     ul.appendChild(li);
   });
   ul.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{disposeViewer(b.dataset.del);parts=parts.filter(p=>p.id!=b.dataset.del);render();});
@@ -768,7 +772,7 @@ function render(){
     inp.addEventListener("change",()=>{
       const p=parts.find(x=>x.id==inp.dataset.draw); if(!p)return;
       const f=inp.files&&inp.files[0]; if(!f)return;
-      if(f.size>6*1024*1024){alert("Drawing is too large (max 6 MB). Please compress it or use a smaller file.");inp.value="";return;}
+      if(f.size>MAX_UPLOAD){alert("Drawing is too large (max "+MAX_UPLOAD_MB+" MB) to upload here. Please compress it, or email it to sales@3dpx.com with your order.");inp.value="";return;}
       f.arrayBuffer().then(buf=>{p.drawingBuf=buf;p.drawingName=f.name;render();});
     });
   });
@@ -810,6 +814,11 @@ function render(){
   if(ov&&parts.length){on.style.display="block";
     on.innerHTML=`🎯 Add <b>${money(ov.v-t.gross)}</b> more in parts to unlock <b>${ov.d}% off your entire order</b>.`;}
   else on.style.display="none";
+  const bw=document.getElementById("bigFileWarn");
+  if(bw){const bigs=parts.filter(oversized);
+    if(bigs.length){bw.style.display="block";
+      bw.innerHTML=`⚠ <b>${bigs.length>1?`${bigs.length} files are`:"1 file is"} too large to upload here</b> (over ${MAX_UPLOAD_MB} MB): ${bigs.map(p=>esc(p.fileName||p.name)).join(", ")}.<br>Your pricing and order are unaffected — just email ${bigs.length>1?"them":"it"} to <b>sales@3dpx.com</b> with your order number so we can quote and print ${bigs.length>1?"them":"it"}.`;}
+    else bw.style.display="none";}
 }
 function esc(s){return(s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
 
@@ -1123,9 +1132,9 @@ async function putFile(orderNo,i,name,buf){
 async function uploadOrderFiles(orderNo){
   const missed=[];
   for(let i=0;i<parts.length;i++){const p=parts[i];
-    if(p.fileBuf){ if(p.fileBuf.byteLength>6*1024*1024){missed.push((p.fileName||p.name)+" — file over 6 MB");}
+    if(p.fileBuf){ if(p.fileBuf.byteLength>MAX_UPLOAD){missed.push((p.fileName||p.name)+" — file over "+MAX_UPLOAD_MB+" MB");}
       else if(!await putFile(orderNo,i,p.fileName||(p.name+".stl"),p.fileBuf)) missed.push(p.fileName||(p.name+".stl")); }
-    if(p.drawingBuf){ if(p.drawingBuf.byteLength>6*1024*1024){missed.push((p.drawingName||p.name)+" — drawing over 6 MB");}
+    if(p.drawingBuf){ if(p.drawingBuf.byteLength>MAX_UPLOAD){missed.push((p.drawingName||p.name)+" — drawing over "+MAX_UPLOAD_MB+" MB");}
       else if(!await putFile(orderNo,"draw"+i,"drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf")),p.drawingBuf)) missed.push("drawing "+(i+1)); }
   }
   return missed;
@@ -1157,7 +1166,7 @@ async function startPayment(){
   if(LOADED_QUOTE_ID){try{await fetch("/.netlify/functions/promote-quote",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({orderNo,id:LOADED_QUOTE_ID})});}catch(e){}}
   btn.textContent="Uploading files…";
   const _missed=await uploadOrderFiles(orderNo);
-  if(_missed.length&&INTERNAL) alert("Some files didn't upload — attach manually in Smartsheet:\n• "+_missed.join("\n• "));
+  if(_missed.length) alert("Heads up — "+_missed.length+" file"+(_missed.length>1?"s were":" was")+" too large to upload automatically:\n• "+_missed.join("\n• ")+"\n\nYour order is still being placed. Please email "+(_missed.length>1?"these files":"this file")+" to sales@3dpx.com with your order number so we can print "+(_missed.length>1?"them":"it")+".");
   await uploadTraveler(orderNo,{});
   await uploadPackingSlip(orderNo,{});
   await uploadQuote(orderNo,{});
@@ -1197,9 +1206,9 @@ async function submitPO(approved){
   if(LOADED_QUOTE_ID){try{await fetch("/.netlify/functions/promote-quote",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({orderNo,id:LOADED_QUOTE_ID})});}catch(e){}}
   btn.textContent="Uploading files…";
   const _missed=await uploadOrderFiles(orderNo);
-  if(_missed.length&&INTERNAL) alert("Some files didn't upload — attach manually in Smartsheet:\n• "+_missed.join("\n• "));
+  if(_missed.length) alert("Heads up — "+_missed.length+" file"+(_missed.length>1?"s were":" was")+" too large to upload automatically:\n• "+_missed.join("\n• ")+"\n\nYour order is still being placed. Please email "+(_missed.length>1?"these files":"this file")+" to sales@3dpx.com with your order number so we can print "+(_missed.length>1?"them":"it")+".");
   const pf=document.getElementById("poFile");
-  if(pf&&pf.files&&pf.files[0]&&pf.files[0].size<=6*1024*1024){
+  if(pf&&pf.files&&pf.files[0]&&pf.files[0].size<=MAX_UPLOAD){
     try{ const buf=await pf.files[0].arrayBuffer();
       await putFile(orderNo,"po",pf.files[0].name||("PO-"+(po||"approved")+".pdf"),buf); }catch(e){}
   }
@@ -1276,8 +1285,8 @@ async function saveQuote(){
   const btn=document.getElementById("saveQuoteBtn"),orig=btn.textContent;btn.disabled=true;btn.textContent="Saving…";
   const id=LOADED_QUOTE_ID||("Q-"+Math.random().toString(36).slice(2,8).toUpperCase());  // reuse id when editing a loaded quote → same customer link updates
   for(let i=0;i<parts.length;i++){const p=parts[i];
-    if(p.fileBuf&&p.fileBuf.byteLength<=6*1024*1024){try{await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(id)+"&i="+i+"&name="+encodeURIComponent(p.fileName||(p.name+".stl")),{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.fileBuf});}catch(e){}}
-    if(p.drawingBuf&&p.drawingBuf.byteLength<=6*1024*1024){try{await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(id)+"&i=draw"+i+"&name="+encodeURIComponent("drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf"))),{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.drawingBuf});}catch(e){}}
+    if(p.fileBuf&&p.fileBuf.byteLength<=MAX_UPLOAD){try{await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(id)+"&i="+i+"&name="+encodeURIComponent(p.fileName||(p.name+".stl")),{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.fileBuf});}catch(e){}}
+    if(p.drawingBuf&&p.drawingBuf.byteLength<=MAX_UPLOAD){try{await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(id)+"&i=draw"+i+"&name="+encodeURIComponent("drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf"))),{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.drawingBuf});}catch(e){}}
   }
   try{
     const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -1318,8 +1327,8 @@ async function customerSaveQuote(){
   const btn=document.getElementById("custSaveBtn"),orig=btn.textContent;btn.disabled=true;btn.textContent="Saving…";
   const id="Q-"+Math.random().toString(36).slice(2,8).toUpperCase();
   for(let i=0;i<parts.length;i++){const p=parts[i];
-    if(p.fileBuf&&p.fileBuf.byteLength<=6*1024*1024){try{await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(id)+"&i="+i+"&name="+encodeURIComponent(p.fileName||(p.name+".stl")),{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.fileBuf});}catch(e){}}
-    if(p.drawingBuf&&p.drawingBuf.byteLength<=6*1024*1024){try{await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(id)+"&i=draw"+i+"&name="+encodeURIComponent("drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf"))),{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.drawingBuf});}catch(e){}}
+    if(p.fileBuf&&p.fileBuf.byteLength<=MAX_UPLOAD){try{await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(id)+"&i="+i+"&name="+encodeURIComponent(p.fileName||(p.name+".stl")),{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.fileBuf});}catch(e){}}
+    if(p.drawingBuf&&p.drawingBuf.byteLength<=MAX_UPLOAD){try{await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(id)+"&i=draw"+i+"&name="+encodeURIComponent("drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf"))),{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.drawingBuf});}catch(e){}}
   }
   try{
     const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
