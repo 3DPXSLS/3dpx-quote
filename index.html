@@ -43,6 +43,7 @@
   .part .dims{color:var(--muted);font-size:13px;margin-top:2px}
   .part .price{font-weight:700;color:var(--navy);white-space:nowrap;font-size:20px}
   .part .pricebox{border:1.5px solid var(--navy);background:#f4f6fb;border-radius:9px;padding:8px 13px}
+  .part .lineno{flex:none;width:26px;height:26px;border-radius:7px;background:var(--navy);color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:2px}
   .part .thumb{width:64px;height:64px;border-radius:8px;border:1px solid var(--line);background:#fff;object-fit:contain;flex:none}
   .part .viewwrap{flex:none;text-align:center}
   .part .viewslot{width:120px;height:120px;border:1px solid var(--line);border-radius:10px;background:radial-gradient(circle at 50% 38%, #f4f6fa 0%, #d9dfe8 100%);overflow:hidden;position:relative}
@@ -718,6 +719,7 @@ function render(){
     li.innerHTML=`
       <div class="top">
         <div style="display:flex;gap:12px;align-items:flex-start;min-width:0">
+          <div class="lineno">${i+1}</div>
           ${window.THREE&&p.geo?`<div class="viewwrap"><div class="viewslot" data-view="${p.id}" title="Drag to rotate"></div><div class="viewhint">↻ drag to rotate</div></div>`:(p.thumb?`<img class="thumb" src="${p.thumb}" alt="3D preview of ${esc(p.name)}">`:"")}
           <div style="min-width:0"><div class="nm">${esc(p.name)}</div>
           <div class="dims">${isMan?`STEP file · qty <b>${p.qty}</b> · <span class="save">manual quote</span>${(p.override>0)?` · <span class="save">custom $</span>`:""}`:`${p.x}×${p.y}×${p.z} mm · ${p.vol} cm³ · qty <b>${p.qty}</b>${c.fixed?` · <span class="save">custom $</span>`:(_t0.promoApplied?` · <span class="save">${_t0.promoPct}% promo</span>`:`${c.qp>0?` · <span class="save">${c.qp}% qty</span>`:""}${_valPct>0?` · <span class="save">${_valPct}% order</span>`:""}${_addlPct>0?` · <span class="save">${_addlPct}% add&#39;l</span>`:""}`)}`}</div>
