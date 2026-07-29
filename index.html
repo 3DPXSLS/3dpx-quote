@@ -774,7 +774,7 @@ function render(){
   ul.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{disposeViewer(b.dataset.del);parts=parts.filter(p=>p.id!=b.dataset.del);render();});
   ul.querySelectorAll("[data-bump]").forEach(b=>b.onclick=()=>{const p=parts.find(p=>p.id==b.dataset.bump);if(p){p.qty=parseInt(b.dataset.to);render();}});
   ul.querySelectorAll("input,select").forEach(inp=>{
-    const ev=(inp.type==="checkbox"||inp.tagName==="SELECT"||inp.dataset.k==="override")?"change":"input";
+    const ev=(inp.type==="checkbox"||inp.tagName==="SELECT"||inp.type==="number"||inp.dataset.k==="override")?"change":"input";
     inp.addEventListener(ev,()=>{const p=parts.find(p=>p.id==inp.dataset.id);if(!p)return;
       const k=inp.dataset.k;
       if(inp.type==="checkbox") p[k]=inp.checked;
