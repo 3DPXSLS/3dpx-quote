@@ -10,13 +10,26 @@ export async function attachOrderFiles(token, orderNo, targets) {
   if (!token || !orderNo || !targets.length) return;
   try {
     const store = getStore("orders");
-    const listing = await store.list({ prefix: orderNo + "/" });
+    const prefix = orderNo + "/";
+    const listing = await store.list({ prefix });
+    // Manifest (written by the widget) = the filenames of THIS order's actual line-item parts.
+    // If present, attach only those part files; skip stale/removed-part files left in the folder.
+    // Drawings ("draw…"), doc PDFs, and anything non-numeric-indexed always attach.
+    let keep = null;
+    for (const b of (listing.blobs || [])) {
+      if ((b.key.split("__").pop() || "") === "manifest.json") {
+        try { const j = await store.get(b.key, { type: "json" }); if (j && Array.isArray(j.keep)) keep = new Set(j.keep.map(String)); } catch (e) {}
+      }
+    }
     for (const b of (listing.blobs || [])) {
       try {
-        const bytes = await store.get(b.key, { type: "arrayBuffer" });
-        if (!bytes) continue;
         const meta = await store.getMetadata(b.key).catch(() => null);
         const fname = (meta && meta.metadata && meta.metadata.name) || b.key.split("__").pop() || "file";
+        if (fname === "manifest.json") { await store.delete(b.key).catch(() => {}); continue; }  // internal, never attach
+        const isPart = !/^drawing-/i.test(fname) && !/\.pdf$/i.test(fname);  // a model file (STL/STEP), vs a drawing/doc
+        if (keep && isPart && !keep.has(fname)) continue;  // stale part file, not on this order — skip (leave in storage)
+        const bytes = await store.get(b.key, { type: "arrayBuffer" });
+        if (!bytes) continue;
         let primaryOk = false;
         for (let i = 0; i < targets.length; i++) {
           const t = targets[i];
