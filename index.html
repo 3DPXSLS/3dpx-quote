@@ -245,6 +245,7 @@
     <div id="repTools" style="display:none;margin-top:16px;border:1px dashed #b9cdf0;border-radius:10px;padding:14px 16px;background:#f4f8ff">
       <div style="font-weight:700;color:#1b2a4a;margin-bottom:8px">Rep tools <span style="font-weight:500;color:#8a95a8;font-size:12px">· internal only</span></div>
       <div class="contact" style="margin:0">
+        <div><label>Engineering services (hours @ $124/hr)</label><input id="engHours" type="number" min="0" step="0.25" placeholder="0"></div>
         <div><label>Additional discount (% off order)</label><input id="addlDisc" type="number" min="0" max="100" step="0.5" placeholder="0"></div>
         <div><label>Custom due date (optional)</label><input id="repDue" type="date"></div>
         <div><label>Material price check</label><div id="perCcReadout" style="padding:9px 0;font-weight:700;color:#1b2a4a">$0.00 / cm³</div></div>
@@ -374,7 +375,8 @@ const RULES = {
   shipRegionMult:{us:1.0, camx:1.6, intl:2.5}, // rough premium for non-US destinations
   // US distance: dest ZIP first digit → approx carrier zone from Chicago (606); mult = 1 + (zone-4)*zoneStep.
   zoneStep:0.09, zoneMultMin:0.80, zoneMultMax:1.35,
-  matCertFee:100  // flat order-level material-certification add-on
+  matCertFee:100,  // flat order-level material-certification add-on
+  engRate:124     // engineering services $/hour (rep-only order-level line)
 };
 /* Dest ZIP first digit → rough ground zone from Chicago, IL (606). Edit if your carrier chart differs. */
 const ZIP_ZONE = {'0':5,'1':5,'2':5,'3':4,'4':3,'5':4,'6':2,'7':5,'8':6,'9':7};
@@ -487,6 +489,7 @@ function unitPrice(p){
   return u;
 }
 let ADDL_DISC=0;  // rep-set additional discount ($ off), internal only
+let ENG_HOURS=0;  // rep-set engineering-services hours @ $124/hr, internal only
 let REP_DUE="";   // rep-set custom due date (YYYY-MM-DD), internal only; blank = auto from lead time
 const PROMO_CODES={"3DPXSAVE10":10, "3DPXSAVE5":5};  // customer promo codes → % off LIST price. Editable. Customer gets the BETTER of the promo or the automatic discounts, not both.
 let PROMO_CODE="", PROMO_PCT=0;          // resolved from the code the customer typed (0 = none/invalid)
@@ -518,10 +521,12 @@ function orderTotals(){
   const est=estimateShipping(parts, region, speed, zip);
   const shipping=est.shipping, billableLb=est.billableLb, zone=est.zone;
   const matCert=(parts.length&&typeof document!=="undefined"&&document.getElementById("matCert")&&document.getElementById("matCert").checked)?RULES.matCertFee:0;
+  const engHours=Math.max(0,ENG_HOURS||0);
+  const eng=engHours*RULES.engRate;                 // engineering services: flat labor, not discounted
   const totalVol=parts.reduce((s,p)=>s+(p.vol||0)*(p.qty||0),0);
   const perCc=totalVol>0?afterDisc/totalVol:0;
   return {gross, qtyDisc:qtyDiscShown, valPct:valPctShown, valDisc:valDiscShown, addlDisc:addlApplied, addlPct, promoApplied, promoPct:promoApplied?promoPct:0, promoCode:promoApplied?PROMO_CODE:"", afterDisc, topUp,
-          shipping, billableLb, zone, matCert, speed, pickup, account, perCc, totalVol, total:afterDisc+topUp+shipping+matCert, saved:gross-afterDisc};
+          shipping, billableLb, zone, matCert, engHours, eng, speed, pickup, account, perCc, totalVol, total:afterDisc+topUp+shipping+matCert+eng, saved:gross-afterDisc};
 }
 function regionLabel(){const r=(document.getElementById("sRegion")||{}).value;return r==="intl"?"International":r==="camx"?"Canada / Mexico":"United States";}
 /* ============================ <<< END PRICING ENGINE >>> ============================ */
@@ -861,6 +866,7 @@ function render(){
   lines+=`<div class="oline"><span>Sales tax</span><b>calculated at checkout</b></div>`;
   lines+=REP_DUE?`<div class="oline"><span>⏱ Due date</span><b>${new Date(REP_DUE+"T00:00:00").toLocaleDateString("en-US")}</b></div>`:`<div class="oline"><span>⏱ Est. lead time</span><b>${orderLeadDays()} business days</b></div>`;
   if(t.matCert>0) lines+=`<div class="oline"><span>Material certification</span><b>${money(t.matCert)}</b></div>`;
+  if(t.eng>0) lines+=`<div class="oline"><span>Engineering services (${t.engHours} hr @ ${money(RULES.engRate)}/hr)</span><b>${money(t.eng)}</b></div>`;
   const hasUnpriced=parts.some(p=>p.manual&&!(p.override>0));
   if(hasUnpriced) lines+=`<div class="oline"><span style="color:#8a5a00">Manual-quote item(s)</span><b style="color:#8a5a00">priced by our team</b></div>`;
   lines+=`<div class="oline tot"><span>Estimated total${hasUnpriced?" (excl. manual items)":""}</span><b>${money(t.total)}</b></div>`;
@@ -942,6 +948,7 @@ function buildQuoteDoc(qn){
       <div style="display:flex;justify-content:space-between;padding:3px 0;color:#42506b"><span>${shipRowLabel}</span><span>${shipRowVal}</span></div>
       <div style="display:flex;justify-content:space-between;padding:3px 0;color:#42506b"><span>Sales tax</span><span>calculated at checkout</span></div>
       ${t.matCert>0?`<div style="display:flex;justify-content:space-between;padding:3px 0"><span>Material certification</span><span>${money(t.matCert)}</span></div>`:""}
+      ${t.eng>0?`<div style="display:flex;justify-content:space-between;padding:3px 0"><span>Engineering services (${t.engHours} hr @ ${money(RULES.engRate)}/hr)</span><span>${money(t.eng)}</span></div>`:""}
       ${t.saved>0.005?`<div style="display:flex;justify-content:space-between;padding:5px 0 3px;color:#1e9e6a;font-weight:700;border-top:1px solid #eef2f8;margin-top:3px"><span>You save</span><span>${money(t.saved)} (${Math.round(t.saved/t.gross*100)}%)</span></div>`:""}
       <div style="display:flex;justify-content:space-between;align-items:center;background:#1b2a4a;color:#fff;padding:9px 14px;border-radius:8px;margin-top:8px"><span style="font-size:10.5px;text-transform:uppercase;letter-spacing:1px">Estimated total</span><span style="font-size:19px;font-weight:800">${money(t.total)}</span></div>
      </div>
@@ -1146,6 +1153,7 @@ function buildQuotePDF(orderNo,opts){
   rowsT.push(["Est. shipping ("+(t.pickup?"pickup":t.account?"your account":SHIP_SPEEDS[t.speed].label)+")",shipVal]);
   rowsT.push(["Sales tax","calculated at checkout"]);
   if(t.matCert>0)rowsT.push(["Material certification",money(t.matCert)]);
+  if(t.eng>0)rowsT.push(["Engineering services ("+t.engHours+" hr @ "+money(RULES.engRate)+"/hr)",money(t.eng)]);
   const half=CW*0.52, lx=M+CW-half;
   doc.autoTable({startY:doc.lastAutoTable.finalY+12,body:rowsT,theme:"plain",styles:{fontSize:10,cellPadding:3,textColor:INK},
     columnStyles:{0:{cellWidth:half*0.62,halign:"left",textColor:GREY},1:{cellWidth:half*0.38,halign:"right"}},margin:{left:lx,right:M}});
@@ -1207,7 +1215,7 @@ async function ensureQuoteSaved(){
       body:JSON.stringify({token:INTERNAL_TOKEN,
         parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,vsPrice:(+p.vsPrice>0)?+p.vsPrice:null,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,inspect:!!p.inspect,inspQty:+p.inspQty||1,drawingName:p.drawingName||"",file:p.fileName||"",thumb:"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
-        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,promo:PROMO_CODE,dueDate:REP_DUE||"",total:orderTotals().total,origin:location.origin,source:INTERNAL?"internal":"web",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
+        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,dueDate:REP_DUE||"",total:orderTotals().total,origin:location.origin,source:INTERNAL?"internal":"web",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
     const d=await r.json().catch(()=>({}));
     if(d.ok){LOADED_QUOTE_ID=d.id;return d.id;}
   }catch(e){}
@@ -1242,7 +1250,7 @@ async function startPayment(){
         shipAccount:(shipSpeed()==="account")?v("sAcct"):"",
         shipAddress:(shipSpeed()==="pickup")?"Pickup at 3DPX (Chicago, IL)":[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "),
         matCert:document.getElementById("matCert").checked,
-        quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,promo:PROMO_CODE,source:INTERNAL?"internal":"web",dueDate:REP_DUE||"",
+        quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,source:INTERNAL?"internal":"web",dueDate:REP_DUE||"",
         returnUrl:document.referrer||location.href})});
     const data=await r.json().catch(()=>({}));
     if(data.url){ try{window.top.location.href=data.url;}catch(e){window.location.href=data.url;} return; }
@@ -1285,7 +1293,7 @@ async function submitPO(approved){
         zip:v("sZip"), shipSpeed:shipSpeed(),
         carrier:(shipSpeed()==="account")?v("sCarrier"):"", shipAccount:(shipSpeed()==="account")?v("sAcct"):"",
         shipAddress:(shipSpeed()==="pickup")?"Pickup at 3DPX (Chicago, IL)":[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "),
-        matCert:document.getElementById("matCert").checked,quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,promo:PROMO_CODE,source:INTERNAL?"internal":"web",dueDate:REP_DUE||""})});
+        matCert:document.getElementById("matCert").checked,quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,source:INTERNAL?"internal":"web",dueDate:REP_DUE||""})});
     const data=await r.json().catch(()=>({}));
     if(data.ok){
       const b=document.getElementById("payBanner");
@@ -1352,7 +1360,7 @@ async function saveQuote(){
       body:JSON.stringify({token:INTERNAL_TOKEN,id,
         parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,vsPrice:(+p.vsPrice>0)?+p.vsPrice:null,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,inspect:!!p.inspect,inspQty:+p.inspQty||1,drawingName:p.drawingName||"",file:p.fileName||"",thumb:p.thumb||"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
-        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,promo:PROMO_CODE,dueDate:REP_DUE||"",total:orderTotals().total,origin:location.origin,source:INTERNAL?"internal":"web",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
+        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,dueDate:REP_DUE||"",total:orderTotals().total,origin:location.origin,source:INTERNAL?"internal":"web",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
     const data=await r.json().catch(()=>({}));
     if(data.ok){
       LOADED_QUOTE_ID=data.id;
@@ -1411,12 +1419,13 @@ async function loadQuote(id){
     const r=await fetch("/.netlify/functions/get-quote?id="+encodeURIComponent(id));
     const data=await r.json().catch(()=>({}));
     if(!data.ok||!data.quote)return;
-    const q=data.quote;LOADED_QUOTE_ID=q.id;ADDL_DISC=Math.max(0,+q.addlDisc||0);REP_DUE=q.dueDate||"";
+    const q=data.quote;LOADED_QUOTE_ID=q.id;ADDL_DISC=Math.max(0,+q.addlDisc||0);ENG_HOURS=Math.max(0,+q.engHours||0);REP_DUE=q.dueDate||"";
     {const pr=resolvePromo(q.promo||"");PROMO_CODE=pr.pct>0?pr.code:"";PROMO_PCT=pr.pct;const pel=document.getElementById("promoCode");if(pel){pel.value=PROMO_CODE;}}
     const set=(k,val)=>{const el=document.getElementById(k);if(el&&val!=null&&val!=="")el.value=val;};
     if(q.cust){set("cName",q.cust.name);set("cCo",q.cust.company);set("cEmail",q.cust.email);set("cPhone",q.cust.phone);}
     set("sRegion",q.region);set("sZip",q.zip);set("sSpeed",q.shipSpeed);
     if(document.getElementById("matCert"))document.getElementById("matCert").checked=!!q.matCert;
+    {const eh=document.getElementById("engHours");if(eh)eh.value=ENG_HOURS>0?ENG_HOURS:"";}
     parts.length=0;
     (q.parts||[]).forEach(p=>{parts.push({id:++pid,name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color||"natural",dye:!!p.dye,vs:!!p.vs,vsPrice:(+p.vsPrice>0)?+p.vsPrice:null,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:Math.max(1,+p.insertQty||1),tapped:!!p.tapped,tapQty:Math.max(1,+p.tapQty||1),inspect:!!p.inspect,inspQty:Math.max(1,+p.inspQty||1),drawingName:p.drawingName||"",fileName:p.file||"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual,geo:null,area:0,thumb:p.thumb||null,fileBuf:null});});
     toggleShip();render();
@@ -1434,6 +1443,7 @@ async function loadQuote(id){
 if(INTERNAL){
   const rt=document.getElementById("repTools");if(rt)rt.style.display="";
   const ad=document.getElementById("addlDisc");if(ad)ad.addEventListener("input",()=>{ADDL_DISC=Math.max(0,Math.min(100,parseFloat(ad.value)||0));render();});
+  const eh=document.getElementById("engHours");if(eh)eh.addEventListener("input",()=>{ENG_HOURS=Math.max(0,parseFloat(eh.value)||0);render();});
   const rdue=document.getElementById("repDue");if(rdue)rdue.addEventListener("change",()=>{REP_DUE=rdue.value||"";render();});
   const sb=document.getElementById("saveQuoteBtn");if(sb){sb.style.display="";sb.onclick=saveQuote;}
   const apb=document.getElementById("approvedBtn");if(apb){apb.style.display="";apb.onclick=()=>submitPO(true);}

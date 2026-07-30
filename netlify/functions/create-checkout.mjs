@@ -12,7 +12,7 @@ const RULES = { volRate0:0.65, volRate100:0.55, bboxRate0:0.04, bboxRate100:0.03
   packBaseLb:0.6, packPerPartLb:0.05, packFactor:2.0, dimDivisor:139,
   shipRegionMult:{us:1.0, camx:1.6, intl:2.5},
   zoneStep:0.09, zoneMultMin:0.80, zoneMultMax:1.35,
-  matCertFee:100 };
+  matCertFee:100, engRate:124 };
 // Dest ZIP first digit -> rough ground zone from Chicago (606). Keep in sync with the widget.
 const ZIP_ZONE = {'0':5,'1':5,'2':5,'3':4,'4':3,'5':4,'6':2,'7':5,'8':6,'9':7};
 function zoneMult(zip, region) {
@@ -70,7 +70,7 @@ function unitPrice(p) {
   if (inspCnt(p)) u += FINISH.inspFee * inspCnt(p);
   return u;
 }
-function orderTotal(parts, region, matCert, speed, zip, addl, promoPct) {
+function orderTotal(parts, region, matCert, speed, zip, addl, promoPct, eng) {
   // p.ov (rep per-unit override) → fixed line, excluded from all discounts.
   let discGross=0, postQty=0, fixedTot=0, hasNormal=false;
   for (const p of parts) {
@@ -93,7 +93,7 @@ function orderTotal(parts, region, matCert, speed, zip, addl, promoPct) {
     shipping = Math.round(Math.max(s.min, s.base + s.perLb*shipWeightLb(parts))*rm*zoneMult(zip, region)*100)/100;
   }
   const cert = matCert ? RULES.matCertFee : 0;
-  return after + topUp + shipping + cert;
+  return after + topUp + shipping + cert + Math.max(0, +eng || 0);
 }
 
 function leadDaysCalc(parts) {
@@ -117,11 +117,13 @@ export default async (req) => {
   // Additional discount + per-item price overrides: authoritative values come from the saved quote (rep-set).
   for (const p of parts) { if (p.ov != null) delete p.ov; if (p.vsp != null) delete p.vsp; }  // never trust client-supplied override / VS price
   let addlDisc = Math.max(0, +body.addlDisc || 0);
+  let engHours = Math.max(0, +body.engHours || 0);
   if (body.quoteId && /^Q-[A-Za-z0-9]{4,12}$/.test(body.quoteId)) {
     try {
       const { getStore } = await import("@netlify/blobs");
       const q = await getStore("orders").get("Q-QUOTES/" + body.quoteId + ".json", { type: "json" });
       if (q && typeof q.addlDisc === "number") addlDisc = Math.max(0, q.addlDisc);
+      if (q && typeof q.engHours === "number") engHours = Math.max(0, q.engHours);
       if (q && Array.isArray(q.parts)) q.parts.forEach((qp, i) => { if (parts[i] && qp && +qp.override > 0) parts[i].ov = +qp.override; if (parts[i] && qp && +qp.vsPrice > 0) parts[i].vsp = +qp.vsPrice; });
     } catch (e) { /* keep fallback */ }
   }
@@ -130,7 +132,7 @@ export default async (req) => {
   if (needsManual) return json({ error: "This order includes an item that needs a manual quote — please use Submit PO or email sales@3dpx.com, and we'll send a payment link." }, 400);
 
   const promoPct = PROMO[String(body.promo||"").trim().toUpperCase()] || 0;
-  const amount = Math.round(orderTotal(parts, body.region, !!body.matCert, speed, body.zip, addlDisc, promoPct) * 100);
+  const amount = Math.round(orderTotal(parts, body.region, !!body.matCert, speed, body.zip, addlDisc, promoPct, engHours*RULES.engRate) * 100);
   if (amount < 50) return json({ error: "Order total too low." }, 400);
 
   const totalParts = parts.reduce((s,p)=>s+(Math.max(1,parseInt(p.qty)||1)),0);

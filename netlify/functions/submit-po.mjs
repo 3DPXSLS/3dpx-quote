@@ -35,7 +35,7 @@ const RULES = { volRate0:0.65, volRate100:0.55, bboxRate0:0.04, bboxRate100:0.03
   packBaseLb:0.6, packPerPartLb:0.05, packFactor:2.0, dimDivisor:139,
   shipRegionMult:{us:1.0, camx:1.6, intl:2.5},
   zoneStep:0.09, zoneMultMin:0.80, zoneMultMax:1.35,
-  matCertFee:100 };
+  matCertFee:100, engRate:124 };
 const ZIP_ZONE = {'0':5,'1':5,'2':5,'3':4,'4':3,'5':4,'6':2,'7':5,'8':6,'9':7};
 function zoneMult(zip, region) {
   if (region && region !== "us") return 1;
@@ -90,7 +90,7 @@ function unitPrice(p) {
   if (inspCnt(p)) u += FINISH.inspFee * inspCnt(p);
   return u;
 }
-function orderTotal(parts, region, matCert, speed, zip, addl, promoPct) {
+function orderTotal(parts, region, matCert, speed, zip, addl, promoPct, eng) {
   // p.ov (rep per-unit override) → fixed line, excluded from all discounts.
   let discGross=0, postQty=0, fixedTot=0, hasNormal=false;
   for (const p of parts) {
@@ -113,7 +113,7 @@ function orderTotal(parts, region, matCert, speed, zip, addl, promoPct) {
     shipping = Math.round(Math.max(s.min, s.base + s.perLb*shipWeightLb(parts))*rm*zoneMult(zip, region)*100)/100;
   }
   const cert = matCert ? RULES.matCertFee : 0;
-  return Math.round((after + topUp + shipping + cert)*100)/100;
+  return Math.round((after + topUp + shipping + cert + Math.max(0, +eng || 0))*100)/100;
 }
 function leadDaysCalc(parts) {
   let tv = 0; for (const p of parts) tv += (p.vol||0)*Math.max(1, parseInt(p.qty)||1);
@@ -140,11 +140,12 @@ export default async (req) => {
   const speed = SHIP_SPEEDS[body.shipSpeed] ? body.shipSpeed : "ground";
   for (const p of parts) { if (p.ov != null) delete p.ov; if (p.vsp != null) delete p.vsp; }  // never trust client-supplied override / VS price
   let addlDisc = Math.max(0, +body.addlDisc || 0);
+  let engHours = Math.max(0, +body.engHours || 0);
   if (body.quoteId && /^Q-[A-Za-z0-9]{4,12}$/.test(body.quoteId)) {
-    try { const { getStore } = await import("@netlify/blobs"); const q = await getStore("orders").get("Q-QUOTES/" + body.quoteId + ".json", { type: "json" }); if (q && typeof q.addlDisc === "number") addlDisc = Math.max(0, q.addlDisc); if (q && Array.isArray(q.parts)) q.parts.forEach((qp, i) => { if (parts[i] && qp && +qp.override > 0) parts[i].ov = +qp.override; if (parts[i] && qp && +qp.vsPrice > 0) parts[i].vsp = +qp.vsPrice; }); } catch (e) {}
+    try { const { getStore } = await import("@netlify/blobs"); const q = await getStore("orders").get("Q-QUOTES/" + body.quoteId + ".json", { type: "json" }); if (q && typeof q.addlDisc === "number") addlDisc = Math.max(0, q.addlDisc); if (q && typeof q.engHours === "number") engHours = Math.max(0, q.engHours); if (q && Array.isArray(q.parts)) q.parts.forEach((qp, i) => { if (parts[i] && qp && +qp.override > 0) parts[i].ov = +qp.override; if (parts[i] && qp && +qp.vsPrice > 0) parts[i].vsp = +qp.vsPrice; }); } catch (e) {}
   }
   const promoPct = PROMO[String(body.promo||"").trim().toUpperCase()] || 0;
-  const price = orderTotal(parts, body.region, !!body.matCert, speed, body.zip, addlDisc, promoPct);
+  const price = orderTotal(parts, body.region, !!body.matCert, speed, body.zip, addlDisc, promoPct, engHours*RULES.engRate);
   const totalParts = parts.reduce((s,p)=>s+(Math.max(1,parseInt(p.qty)||1)),0);
   const totalVol   = Math.round(parts.reduce((s,p)=>s+(p.vol||0)*(Math.max(1,parseInt(p.qty)||1)),0)*100)/100;
   const dyeAny   = parts.some(p=>p.dye);
