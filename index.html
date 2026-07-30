@@ -184,6 +184,17 @@
 
   <ul class="parts" id="parts"></ul>
 
+  <div id="repTools" style="display:none;margin:6px 0 4px;border:1px dashed #b9cdf0;border-radius:10px;padding:14px 16px;background:#f4f8ff">
+    <div style="font-weight:700;color:#1b2a4a;margin-bottom:8px">Rep tools <span style="font-weight:500;color:#8a95a8;font-size:12px">· internal only</span></div>
+    <div class="contact" style="margin:0">
+      <div><label>Engineering services (hours @ $124/hr)</label><input id="engHours" type="number" min="0" step="0.25" placeholder="0"></div>
+      <div><label>Additional discount (% off order)</label><input id="addlDisc" type="number" min="0" max="100" step="0.5" placeholder="0"></div>
+      <div><label>Custom due date (optional)</label><input id="repDue" type="date"></div>
+      <div><label>Material price check</label><div id="perCcReadout" style="padding:9px 0;font-weight:700;color:#1b2a4a">$0.00 / cm³</div></div>
+    </div>
+    <div style="font-size:11px;color:#8a95a8;margin-top:6px">$/cm³ = discounted parts value ÷ total printed volume. The additional discount reduces the customer's total and the amount charged. Visible only in the internal tool.</div>
+  </div>
+
   <div id="contactWrap" style="display:none">
     <h2>2 · Your details</h2>
     <div class="contact">
@@ -241,16 +252,6 @@
         <div><label>PO number</label><input id="cPO" placeholder="e.g. PO-10432"></div>
         <div><label>Attach PO (PDF, optional)</label><input id="poFile" type="file" accept="application/pdf,.pdf"></div>
       </div>
-    </div>
-    <div id="repTools" style="display:none;margin-top:16px;border:1px dashed #b9cdf0;border-radius:10px;padding:14px 16px;background:#f4f8ff">
-      <div style="font-weight:700;color:#1b2a4a;margin-bottom:8px">Rep tools <span style="font-weight:500;color:#8a95a8;font-size:12px">· internal only</span></div>
-      <div class="contact" style="margin:0">
-        <div><label>Engineering services (hours @ $124/hr)</label><input id="engHours" type="number" min="0" step="0.25" placeholder="0"></div>
-        <div><label>Additional discount (% off order)</label><input id="addlDisc" type="number" min="0" max="100" step="0.5" placeholder="0"></div>
-        <div><label>Custom due date (optional)</label><input id="repDue" type="date"></div>
-        <div><label>Material price check</label><div id="perCcReadout" style="padding:9px 0;font-weight:700;color:#1b2a4a">$0.00 / cm³</div></div>
-      </div>
-      <div style="font-size:11px;color:#8a95a8;margin-top:6px">$/cm³ = discounted parts value ÷ total printed volume. The additional discount reduces the customer's total and the amount charged. Visible only in the internal tool.</div>
     </div>
   </div>
 </div>
