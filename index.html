@@ -463,7 +463,7 @@ function leadLabel(p){const d=leadDays(p);return d+(d===1?" day":" days");}
 function orderLeadDays(){let m=0;parts.forEach(p=>{const f=partFinishDays(p);if(f>m)m=f;});return orderBaseDays()+m;}
 const BED = {x:700,y:380,z:580}; // EOS P 770 build volume (mm)
 
-function unitPrice(p){
+function baseUnit(p){                              // pre-finish unit price (rates × geometry × marketAdj)
   const bbox=(p.x*p.y*p.z)/1000;
   const density=bbox>0?Math.min(p.vol/bbox,1):0;
   const volRate=RULES.volRate100+(1-density)*(RULES.volRate0-RULES.volRate100);
@@ -472,11 +472,15 @@ function unitPrice(p){
     :RULES.bbMult100+(RULES.bbVolThresh-bbox)/RULES.bbVolThresh*(RULES.bbMult0-RULES.bbMult100);
   let u=(volRate*p.vol+bboxRate*bbox)*bbMult+RULES.shellPrice*(p.shells||1);
   u=Math.max(u,RULES.minPrice);
-  u*=RULES.marketAdj;                             // 10% competitiveness reduction on the base
-  const base=u;                                   // finishing % is of the pre-finish unit
-  if(p.dye) u+=base*FINISH.dyePct/100;            // dye and vapor stack as independent components
-  if(p.vs)  u+=Math.max(base*FINISH.vsPct/100, FINISH.vsMin);
-  if(p.tumble) u+=FINISH.tumbFee;                 // tumble: flat fee per piece
+  return u*RULES.marketAdj;                        // 10% competitiveness reduction on the base
+}
+// Vapor-smooth surcharge per piece: rep hard-coded price (p.vsPrice) if set, else 30% of base ($15 floor).
+function vsAmount(p){ if(!p||!p.vs) return 0; if(+p.vsPrice>0) return +p.vsPrice; return Math.max(baseUnit(p)*FINISH.vsPct/100, FINISH.vsMin); }
+function unitPrice(p){
+  let u=baseUnit(p); const base=u;                 // finishing % is of the pre-finish unit
+  if(p.dye) u+=base*FINISH.dyePct/100;             // dye and vapor stack as independent components
+  if(p.vs)  u+=vsAmount(p);
+  if(p.tumble) u+=FINISH.tumbFee;                  // tumble: flat fee per piece
   if(insertCount(p)) u+=FINISH.insertFee*insertCount(p);  // inserts: $/insert × count, per piece
   if(tapCount(p)) u+=FINISH.tapFee*tapCount(p);           // tapped holes: $/hole × count, per piece
   if(inspCount(p)) u+=FINISH.inspFee*inspCount(p);        // formal inspection: $/point × count, per piece
@@ -706,7 +710,7 @@ function disposeViewer(id){const v=viewers[id];if(!v)return;try{v.renderer.dispo
 function partFromGeom(file,buf,r){
   return {id:++pid,name:file.name.replace(/\.(stl|stp|step)$/i,""),fileName:file.name,fileBuf:buf,
     x:+r.x.toFixed(1),y:+r.y.toFixed(1),z:+r.z.toFixed(1),vol:+(r.volMM3/1000).toFixed(2),
-    qty:1,color:"natural",dye:false,vs:false,tumble:false,inserts:false,insertQty:1,tapped:false,tapQty:1,inspect:false,inspQty:1,geo:r.pos,area:r.areaMM2,thumb:renderThumb(r.pos)};
+    qty:1,color:"natural",dye:false,vs:false,vsPrice:null,tumble:false,inserts:false,insertQty:1,tapped:false,tapQty:1,inspect:false,inspQty:1,geo:r.pos,area:r.areaMM2,thumb:renderThumb(r.pos)};
 }
 function handleFiles(files){[...files].forEach(file=>{
   const ext=(file.name.split(".").pop()||"").toLowerCase();
@@ -718,7 +722,7 @@ function handleFiles(files){[...files].forEach(file=>{
         const r=await stepToGeom(buf); if(!r.count) throw 0;
         if(r.bodies>1 && r.overlap){
           parts.push({id:++pid,name:file.name.replace(/\.(stp|step)$/i,""),fileName:file.name,fileBuf:buf,
-            x:+r.x.toFixed(1),y:+r.y.toFixed(1),z:+r.z.toFixed(1),vol:0,qty:1,color:"natural",dye:false,vs:false,tumble:false,inserts:false,insertQty:1,tapped:false,tapQty:1,inspect:false,inspQty:1,geo:null,area:0,thumb:renderThumb(r.pos),manual:true,assembly:r.bodies});
+            x:+r.x.toFixed(1),y:+r.y.toFixed(1),z:+r.z.toFixed(1),vol:0,qty:1,color:"natural",dye:false,vs:false,vsPrice:null,tumble:false,inserts:false,insertQty:1,tapped:false,tapQty:1,inspect:false,inspQty:1,geo:null,area:0,thumb:renderThumb(r.pos),manual:true,assembly:r.bodies});
           render();
           alert(file.name+" contains "+r.bodies+" overlapping bodies, so we can't auto-measure its volume reliably (assemblies can double-count shared material). It's added as a manual-quote item — our team will confirm the price. Tip: save each solid as its own STEP file for an instant quote.");
           return;
@@ -726,7 +730,7 @@ function handleFiles(files){[...files].forEach(file=>{
         const part=partFromGeom(file,buf,r); if(r.bodies>1) part.assembly=r.bodies; parts.push(part); createViewer(part); render();
       }catch(err){
         parts.push({id:++pid,name:file.name.replace(/\.(stp|step)$/i,""),fileName:file.name,fileBuf:buf,
-          x:0,y:0,z:0,vol:0,qty:1,color:"natural",dye:false,vs:false,tumble:false,inserts:false,insertQty:1,tapped:false,tapQty:1,inspect:false,inspQty:1,geo:null,area:0,thumb:null,manual:true});
+          x:0,y:0,z:0,vol:0,qty:1,color:"natural",dye:false,vs:false,vsPrice:null,tumble:false,inserts:false,insertQty:1,tapped:false,tapQty:1,inspect:false,inspQty:1,geo:null,area:0,thumb:null,manual:true});
         render();
         alert("We couldn't auto-measure "+file.name+" (complex STEP). It's added as a manual-quote item — our team will price it, and card checkout is paused until it's priced.");
       }
@@ -781,6 +785,7 @@ function render(){
           </select></div>
         <div class="o wide"><label>Finishing (optional)</label>
           <label class="chk"><input type="checkbox" data-k="vs" data-id="${p.id}" ${p.vs?"checked":""}> Vapor smooth (+30%, +1 day)</label>
+          <div style="${p.vs?"":"display:none"};margin:2px 0 6px 22px;font-size:12px;color:var(--muted)">Vapor smooth: <b style="color:var(--ink)">+${money(vsAmount(p))}/pc</b>${(+p.vsPrice>0)?` <span style="color:#c2410c">· rep set</span>`:""}${INTERNAL?`<div style="margin-top:4px"><input type="number" min="0" step="0.01" data-k="vsPrice" data-id="${p.id}" value="${(+p.vsPrice>0)?p.vsPrice:""}" placeholder="rep VS $/unit — blank = auto" style="width:180px;padding:5px 8px"></div>`:""}</div>
           <label class="chk"><input type="checkbox" data-k="tumble" data-id="${p.id}" ${p.tumble?"checked":""}> Tumble (+$1.50/part, +1 day)</label>
           <label class="chk"><input type="checkbox" data-k="inserts" data-id="${p.id}" ${p.inserts?"checked":""}> Threaded inserts (+$1.50 ea, +1 day)</label>
           <div style="${p.inserts?"":"display:none"};margin:2px 0 0 22px;font-size:12px;color:var(--ink)">Number of inserts per part: <input type="number" min="1" step="1" data-k="insertQty" data-id="${p.id}" value="${p.insertQty||1}" style="width:64px;padding:4px 6px"></div>
@@ -814,7 +819,7 @@ function render(){
     inp.addEventListener(ev,()=>{const p=parts.find(p=>p.id==inp.dataset.id);if(!p)return;
       const k=inp.dataset.k;
       if(inp.type==="checkbox") p[k]=inp.checked;
-      else if(k==="override"){const val=(inp.value||"").trim();const n=parseFloat(val);p.override=(val===""||!(n>0))?null:n;}
+      else if(k==="override"||k==="vsPrice"){const val=(inp.value||"").trim();const n=parseFloat(val);p[k]=(val===""||!(n>0))?null:n;}
       else p[k]=(k==="qty"||k==="insertQty"||k==="tapQty"||k==="inspQty")?Math.max(1,parseInt(inp.value)||1):inp.value;
       if(k==="color") p.dye=(p.color!=="natural");
       render();});
@@ -880,7 +885,7 @@ function esc(s){return(s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"
 function quoteNum(){const d=new Date();return "WEB-"+d.getFullYear()+(""+(d.getMonth()+1)).padStart(2,"0")+(""+d.getDate()).padStart(2,"0")+"-"+(""+d.getHours()).padStart(2,"0")+(""+d.getMinutes()).padStart(2,"0");}
 function buildQuoteDoc(qn){
   const t=orderTotals();
-  const rows=parts.map((p,i)=>{const c=lineCalc(p);const ldf=lineFactor(c,t);const dpct=(c.fixed||c.manual)?0:Math.round((1-(c.net*ldf)/c.list)*100);const bd="border-bottom:1px solid #eef2f8";const bg=i%2?"background:#fafbfd;":"";const spec="SLS · Nylon 12 (PA12) · "+(p.dye?("Dyed "+COLORS[partColor(p)].label):"White (Natural)")+" · "+finishLabel(p);return `<tr style="${bg}">
+  const rows=parts.map((p,i)=>{const c=lineCalc(p);const ldf=lineFactor(c,t);const dpct=(c.fixed||c.manual)?0:Math.round((1-(c.net*ldf)/c.list)*100);const bd="border-bottom:1px solid #eef2f8";const bg=i%2?"background:#fafbfd;":"";const spec="SLS · Nylon 12 (PA12) · "+(p.dye?("Dyed "+COLORS[partColor(p)].label):"White (Natural)")+" · "+finishLabel(p)+(p.vs?(" (VS +"+money(vsAmount(p))+"/pc)"):"");return `<tr style="${bg}">
     <td style="padding:8px 6px;${bd}"><div style="display:flex;align-items:center;gap:8px">${p.thumb?`<img src="${p.thumb}" style="width:34px;height:34px;border:1px solid #e2e8f2;border-radius:5px;object-fit:contain">`:""}<span style="font-weight:600">${esc(p.name)}</span></div></td>
     <td style="padding:8px 6px;${bd};font-size:11px;color:#42506b">${spec}</td>
     <td style="padding:8px 6px;${bd};font-size:11px">${p.x}×${p.y}×${p.z} mm</td>
@@ -1125,7 +1130,7 @@ function buildQuotePDF(orderNo,opts){
   let my=y; meta.forEach(m=>{doc.setFont("helvetica","bold");doc.text(m[0],W-M-150,my);doc.setFont("helvetica","normal");doc.text(String(m[1]),W-M,my,{align:"right"});my+=14;});
   y=Math.max(py,my)+8;
   const rows=parts.map((p,i)=>{const c=lineCalc(p);const ldf=lineFactor(c,t);const clr=p.dye?COLORS[partColor(p)].label:"White (Natural)";
-    const desc="SLS · Nylon 12 (PA12) · "+(p.dye?("Dyed "+clr):"White (Natural)")+(p.vs?" · Vapor smoothed":"")+(p.tumble?" · Tumbled":"")+(insertCount(p)?(" · "+insertCount(p)+" inserts"):"")+(tapCount(p)?(" · "+tapCount(p)+" tapped"):"")+(inspCount(p)?(" · "+inspCount(p)+"-pt inspection"):"")+(c.manual?" · quote pending":"");
+    const desc="SLS · Nylon 12 (PA12) · "+(p.dye?("Dyed "+clr):"White (Natural)")+(p.vs?(" · Vapor smoothed (+"+money(vsAmount(p))+"/pc)"):"")+(p.tumble?" · Tumbled":"")+(insertCount(p)?(" · "+insertCount(p)+" inserts"):"")+(tapCount(p)?(" · "+tapCount(p)+" tapped"):"")+(inspCount(p)?(" · "+inspCount(p)+"-pt inspection"):"")+(c.manual?" · quote pending":"");
     const listUnit=c.manual?"—":money(c.list), listLine=c.manual?"—":money(c.lineList), discUnit=c.manual?"quote pending":money(c.net*ldf);
     return [String(i+1),p.name,desc,String(p.qty),listUnit,listLine,discUnit];});
   doc.autoTable({startY:y,head:[["#","Item","Description","Qty","Unit price","Line total","Disc. unit"]],body:rows,
@@ -1200,7 +1205,7 @@ async function ensureQuoteSaved(){
   try{
     const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({token:INTERNAL_TOKEN,
-        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,inspect:!!p.inspect,inspQty:+p.inspQty||1,drawingName:p.drawingName||"",file:p.fileName||"",thumb:"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual})),
+        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,vsPrice:(+p.vsPrice>0)?+p.vsPrice:null,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,inspect:!!p.inspect,inspQty:+p.inspQty||1,drawingName:p.drawingName||"",file:p.fileName||"",thumb:"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
         matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,promo:PROMO_CODE,dueDate:REP_DUE||"",total:orderTotals().total,origin:location.origin,source:INTERNAL?"internal":"web",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
     const d=await r.json().catch(()=>({}));
@@ -1228,7 +1233,7 @@ async function startPayment(){
     const r=await fetch(CHECKOUT_URL,{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({
         orderNo,
-        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,dye:p.dye,vs:p.vs,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,inspect:!!p.inspect,inspQty:+p.inspQty||1,color:p.color,manual:!!p.manual})),
+        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,dye:p.dye,vs:p.vs,vsPrice:(+p.vsPrice>0)?+p.vsPrice:null,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,inspect:!!p.inspect,inspQty:+p.inspQty||1,color:p.color,manual:!!p.manual})),
         name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone"),
         region:(document.getElementById("sRegion")||{}).value||"us",
         zip:v("sZip"),
@@ -1274,7 +1279,7 @@ async function submitPO(approved){
     const r=await fetch("/.netlify/functions/submit-po",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({
         orderNo, po, approved:!!approved,
-        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,dye:p.dye,vs:p.vs,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,inspect:!!p.inspect,inspQty:+p.inspQty||1,color:p.color,manual:!!p.manual})),
+        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,dye:p.dye,vs:p.vs,vsPrice:(+p.vsPrice>0)?+p.vsPrice:null,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,inspect:!!p.inspect,inspQty:+p.inspQty||1,color:p.color,manual:!!p.manual})),
         name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone"),
         region:(document.getElementById("sRegion")||{}).value||"us",
         zip:v("sZip"), shipSpeed:shipSpeed(),
@@ -1345,7 +1350,7 @@ async function saveQuote(){
   try{
     const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({token:INTERNAL_TOKEN,id,
-        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,inspect:!!p.inspect,inspQty:+p.inspQty||1,drawingName:p.drawingName||"",file:p.fileName||"",thumb:p.thumb||"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual})),
+        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,vsPrice:(+p.vsPrice>0)?+p.vsPrice:null,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,inspect:!!p.inspect,inspQty:+p.inspQty||1,drawingName:p.drawingName||"",file:p.fileName||"",thumb:p.thumb||"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
         matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,promo:PROMO_CODE,dueDate:REP_DUE||"",total:orderTotals().total,origin:location.origin,source:INTERNAL?"internal":"web",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
     const data=await r.json().catch(()=>({}));
@@ -1387,7 +1392,7 @@ async function customerSaveQuote(){
   try{
     const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({id,
-        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,inspect:!!p.inspect,inspQty:+p.inspQty||1,drawingName:p.drawingName||"",file:p.fileName||"",thumb:p.thumb||"",manual:!!p.manual})),
+        parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,vsPrice:(+p.vsPrice>0)?+p.vsPrice:null,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,inspect:!!p.inspect,inspQty:+p.inspQty||1,drawingName:p.drawingName||"",file:p.fileName||"",thumb:p.thumb||"",manual:!!p.manual})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
         matCert:document.getElementById("matCert").checked,promo:PROMO_CODE,total:orderTotals().total,origin:location.origin,source:"web",name:v("cName"),company:v("cCo"),email:email,phone:v("cPhone")})});
     const data=await r.json().catch(()=>({}));
@@ -1413,7 +1418,7 @@ async function loadQuote(id){
     set("sRegion",q.region);set("sZip",q.zip);set("sSpeed",q.shipSpeed);
     if(document.getElementById("matCert"))document.getElementById("matCert").checked=!!q.matCert;
     parts.length=0;
-    (q.parts||[]).forEach(p=>{parts.push({id:++pid,name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color||"natural",dye:!!p.dye,vs:!!p.vs,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:Math.max(1,+p.insertQty||1),tapped:!!p.tapped,tapQty:Math.max(1,+p.tapQty||1),inspect:!!p.inspect,inspQty:Math.max(1,+p.inspQty||1),drawingName:p.drawingName||"",fileName:p.file||"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual,geo:null,area:0,thumb:p.thumb||null,fileBuf:null});});
+    (q.parts||[]).forEach(p=>{parts.push({id:++pid,name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color||"natural",dye:!!p.dye,vs:!!p.vs,vsPrice:(+p.vsPrice>0)?+p.vsPrice:null,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:Math.max(1,+p.insertQty||1),tapped:!!p.tapped,tapQty:Math.max(1,+p.tapQty||1),inspect:!!p.inspect,inspQty:Math.max(1,+p.inspQty||1),drawingName:p.drawingName||"",fileName:p.file||"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual,geo:null,area:0,thumb:p.thumb||null,fileBuf:null});});
     toggleShip();render();
     const b=document.getElementById("payBanner");
     if(b){b.style.display="block";b.style.background="#eef4ff";b.style.border="1px solid #b9cdf0";b.style.color="#1b2a4a";

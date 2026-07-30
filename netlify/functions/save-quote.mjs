@@ -50,6 +50,7 @@ export default async (req) => {
       file: p.file ? String(p.file).slice(0,160) : "",
       thumb: (p.thumb && String(p.thumb).startsWith("data:image")) ? String(p.thumb).slice(0, 400000) : "",
       override: authed && (+p.override > 0) ? +p.override : null,   // rep-only; stripped from public saves
+      vsPrice: authed && (+p.vsPrice > 0) ? +p.vsPrice : null,      // rep-only hard-coded vapor-smooth price
       manual: !!p.manual,
     })),
     region: String(body.region || "us"),

@@ -83,7 +83,7 @@ function unitPrice(p) {
   u *= RULES.marketAdj;
   const base = u;
   if (p.dye) u += base*FINISH.dyePct/100;
-  if (p.vs)  u += Math.max(base*FINISH.vsPct/100, FINISH.vsMin);
+  if (p.vs)  u += (+p.vsp>0 ? +p.vsp : Math.max(base*FINISH.vsPct/100, FINISH.vsMin));  // rep hard-coded VS price wins
   if (p.tumble) u += FINISH.tumbFee;
   if (insCount(p)) u += FINISH.insertFee * insCount(p);
   if (tapCnt(p))  u += FINISH.tapFee * tapCnt(p);
@@ -138,10 +138,10 @@ export default async (req) => {
   const sheetId = process.env.SMARTSHEET_SHEET_ID || SLS_JOBS_SHEET;
 
   const speed = SHIP_SPEEDS[body.shipSpeed] ? body.shipSpeed : "ground";
-  for (const p of parts) { if (p.ov != null) delete p.ov; }  // never trust a client-supplied override
+  for (const p of parts) { if (p.ov != null) delete p.ov; if (p.vsp != null) delete p.vsp; }  // never trust client-supplied override / VS price
   let addlDisc = Math.max(0, +body.addlDisc || 0);
   if (body.quoteId && /^Q-[A-Za-z0-9]{4,12}$/.test(body.quoteId)) {
-    try { const { getStore } = await import("@netlify/blobs"); const q = await getStore("orders").get("Q-QUOTES/" + body.quoteId + ".json", { type: "json" }); if (q && typeof q.addlDisc === "number") addlDisc = Math.max(0, q.addlDisc); if (q && Array.isArray(q.parts)) q.parts.forEach((qp, i) => { if (parts[i] && qp && +qp.override > 0) parts[i].ov = +qp.override; }); } catch (e) {}
+    try { const { getStore } = await import("@netlify/blobs"); const q = await getStore("orders").get("Q-QUOTES/" + body.quoteId + ".json", { type: "json" }); if (q && typeof q.addlDisc === "number") addlDisc = Math.max(0, q.addlDisc); if (q && Array.isArray(q.parts)) q.parts.forEach((qp, i) => { if (parts[i] && qp && +qp.override > 0) parts[i].ov = +qp.override; if (parts[i] && qp && +qp.vsPrice > 0) parts[i].vsp = +qp.vsPrice; }); } catch (e) {}
   }
   const promoPct = PROMO[String(body.promo||"").trim().toUpperCase()] || 0;
   const price = orderTotal(parts, body.region, !!body.matCert, speed, body.zip, addlDisc, promoPct);
