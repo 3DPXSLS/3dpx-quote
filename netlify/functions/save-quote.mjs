@@ -20,7 +20,8 @@ export default async (req) => {
   const authed = !need || String(body.token || "") === String(need);
 
   const parts = Array.isArray(body.parts) ? body.parts : [];
-  if (!parts.length) return json({ error: "No parts to save." }, 400);
+  // Allow a parts-less quote only for a rep billing engineering services alone (never for public saves).
+  if (!parts.length && !(authed && +body.engHours > 0)) return json({ error: "Nothing to save — add a part or engineering hours." }, 400);
 
   const store = getStore("orders");
   const rand = () => "Q-" + Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -83,7 +84,8 @@ export default async (req) => {
   const link = origin ? (origin + "/?quote=" + id) : ("/?quote=" + id);
   const editLink = origin ? (origin + "/?internal=1&quote=" + id) : ("/?internal=1&quote=" + id);  // rep one-click edit
   const pieces = parts.reduce((s, p) => s + Math.max(1, parseInt(p.qty) || 1), 0);
-  const summary = parts.map(p => (Math.max(1, parseInt(p.qty) || 1) + "× " + (p.name || "part"))).join("; ").slice(0, 240);
+  let summary = parts.map(p => (Math.max(1, parseInt(p.qty) || 1) + "× " + (p.name || "part"))).join("; ").slice(0, 240);
+  if (!parts.length && record.engHours > 0) summary = "Engineering services · " + record.engHours + " hr";
   const status = reuse ? "Revised" : (authed ? "Sent" : "Draft");
   try {
     const rowId = await logQuote({

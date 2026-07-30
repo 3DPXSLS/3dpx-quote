@@ -491,6 +491,8 @@ function unitPrice(p){
 }
 let ADDL_DISC=0;  // rep-set additional discount ($ off), internal only
 let ENG_HOURS=0;  // rep-set engineering-services hours @ $125/hr, internal only
+// A quote is valid with parts OR with engineering-services hours alone (rep can bill engineering with no print).
+function quotable(){ return parts.length>0 || (ENG_HOURS>0); }
 let REP_DUE="";   // rep-set custom due date (YYYY-MM-DD), internal only; blank = auto from lead time
 const PROMO_CODES={"3DPXSAVE10":10, "3DPXSAVE5":5};  // customer promo codes → % off LIST price. Editable. Customer gets the BETTER of the promo or the automatic discounts, not both.
 let PROMO_CODE="", PROMO_PCT=0;          // resolved from the code the customer typed (0 = none/invalid)
@@ -840,7 +842,7 @@ function render(){
   });
   parts.forEach(p=>{const slot=ul.querySelector('.viewslot[data-view="'+p.id+'"]');const vv=viewers[p.id];if(slot&&vv){slot.appendChild(vv.canvas);applyFinish(vv.mesh.material,p);}});
 
-  const has=parts.length>0;
+  const has=quotable();
   document.getElementById("bulkBar").style.display=parts.length>1?"flex":"none";
   document.getElementById("contactWrap").style.display=has?"block":"none";
   document.getElementById("summary").style.display=has?"flex":"none";
@@ -1120,7 +1122,7 @@ async function uploadPackingSlip(orderNo,opts){
 /* ---- Quote PDF (with prices) — auto-attached to the order ---- */
 function buildQuotePDF(orderNo,opts){
   opts=opts||{};
-  const JS=window.jspdf&&window.jspdf.jsPDF; if(!JS||!parts.length) return null;
+  const JS=window.jspdf&&window.jspdf.jsPDF; if(!JS||!quotable()) return null;
   const doc=new JS({unit:"pt",format:"letter"}); if(typeof doc.autoTable!=="function") return null;
   const NAVY=[27,42,74],ORANGE=[242,106,33],HEAD=[238,242,248],INK=[27,35,48],GREY=[90,102,120];
   const W=doc.internal.pageSize.getWidth(), M=40, CW=W-2*M;
@@ -1210,7 +1212,7 @@ async function uploadManifest(orderNo){
    silently if the rep hasn't already, so internal Order&pay / PO / approved orders honor the override. */
 async function ensureQuoteSaved(){
   if(LOADED_QUOTE_ID) return LOADED_QUOTE_ID;
-  if(!INTERNAL || !parts.length) return "";
+  if(!INTERNAL || !quotable()) return "";
   try{
     const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({token:INTERNAL_TOKEN,
@@ -1223,7 +1225,7 @@ async function ensureQuoteSaved(){
   return "";
 }
 async function startPayment(){
-  if(!parts.length) return;
+  if(!quotable()) return;
   if(!validEmail()) return;
   const btn=document.getElementById("payBtn"), orig=btn.textContent;
   btn.disabled=true;
@@ -1263,7 +1265,7 @@ async function startPayment(){
 }
 /* ---- Order by PO (invoice, no card) ---- */
 async function submitPO(approved){
-  if(!parts.length) return;
+  if(!quotable()) return;
   if(!validEmail()) return;
   const po=(v("cPO")||"").trim();
   if(!approved && !po){alert("Please enter your PO number to submit a PO order.");document.getElementById("cPO").focus();return;}
@@ -1331,7 +1333,7 @@ if(PAYMENTS_ENABLED){
       if(doc)doc.save("packing-slip-"+genOrderNo()+".pdf"); else alert("Generator still loading — try again in a moment."); };}
   const qb=document.getElementById("quoteBtn");
   if(qb&&isLocal){qb.style.display="";
-    qb.onclick=()=>{ if(!parts.length){alert("Add a part first, then preview the quote.");return;}
+    qb.onclick=()=>{ if(!quotable()){alert("Add a part or enter engineering hours first.");return;}
       const doc=buildQuotePDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});
       if(doc)doc.save("quote-"+genOrderNo()+".pdf"); else alert("Generator still loading — try again in a moment."); };}
 })();
@@ -1349,7 +1351,7 @@ const _URLP=new URLSearchParams(location.search);
 const INTERNAL=_URLP.has("internal");
 const INTERNAL_TOKEN=_URLP.get("internal")||"1";
 async function saveQuote(){
-  if(!parts.length){alert("Add at least one part first.");return;}
+  if(!quotable()){alert("Add a part or enter engineering hours first.");return;}
   const btn=document.getElementById("saveQuoteBtn"),orig=btn.textContent;btn.disabled=true;btn.textContent="Saving…";
   const id=LOADED_QUOTE_ID||("Q-"+Math.random().toString(36).slice(2,8).toUpperCase());  // reuse id when editing a loaded quote → same customer link updates
   for(let i=0;i<parts.length;i++){const p=parts[i];
@@ -1450,7 +1452,7 @@ if(INTERNAL){
   const apb=document.getElementById("approvedBtn");if(apb){apb.style.display="";apb.onclick=()=>submitPO(true);}
   const tb=document.getElementById("travBtn");if(tb){tb.style.display="";tb.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildTravelerPDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});if(d)d.save("traveler-"+genOrderNo()+".pdf");};}
   const pk=document.getElementById("packBtn");if(pk){pk.style.display="";pk.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildPackingSlipPDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});if(d)d.save("packing-slip-"+genOrderNo()+".pdf");};}
-  const qbn=document.getElementById("quoteBtn");if(qbn){qbn.style.display="";qbn.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildQuotePDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});if(d)d.save("quote-"+genOrderNo()+".pdf");};}
+  const qbn=document.getElementById("quoteBtn");if(qbn){qbn.style.display="";qbn.onclick=()=>{if(!quotable()){alert("Add a part or enter engineering hours first.");return;}const d=buildQuotePDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});if(d)d.save("quote-"+genOrderNo()+".pdf");};}
   // Rep actions panel: labeled buttons that trigger the (now hidden) summary buttons' handlers.
   const rap=document.getElementById("repActions");if(rap)rap.style.display="block";
   document.querySelectorAll("#repActions .ract").forEach(b=>b.onclick=()=>{const t=document.getElementById(b.dataset.do);if(t)t.click();});

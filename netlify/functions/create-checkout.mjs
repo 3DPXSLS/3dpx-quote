@@ -111,7 +111,7 @@ export default async (req) => {
   let body;
   try { body = await req.json(); } catch { return json({ error: "Bad request" }, 400); }
   const parts = Array.isArray(body.parts) ? body.parts : [];
-  if (!parts.length) return json({ error: "No parts in order." }, 400);
+  // Engineering-only orders carry no parts; validated after engHours is resolved below.
 
   const speed = SHIP_SPEEDS[body.shipSpeed] ? body.shipSpeed : "ground";
   // Additional discount + per-item price overrides: authoritative values come from the saved quote (rep-set).
@@ -127,6 +127,7 @@ export default async (req) => {
       if (q && Array.isArray(q.parts)) q.parts.forEach((qp, i) => { if (parts[i] && qp && +qp.override > 0) parts[i].ov = +qp.override; if (parts[i] && qp && +qp.vsPrice > 0) parts[i].vsp = +qp.vsPrice; });
     } catch (e) { /* keep fallback */ }
   }
+  if (!parts.length && !(engHours > 0)) return json({ error: "No parts in order." }, 400);
   // Block card checkout for any item that can't be auto-priced (manual STEP / zero geometry) unless a rep set an override.
   const needsManual = parts.some(p => (p.manual || !(+p.vol > 0) || !(+p.x > 0 && +p.y > 0 && +p.z > 0)) && !(+p.ov > 0));
   if (needsManual) return json({ error: "This order includes an item that needs a manual quote — please use Submit PO or email sales@3dpx.com, and we'll send a payment link." }, 400);
@@ -147,7 +148,9 @@ export default async (req) => {
     : ("WEB-" + new Date().toISOString().slice(0,10).replace(/-/g,"") + "-" + Math.floor(1000+Math.random()*9000));
   const acctInfo = (speed==="account") ? (" — " + ((body.carrier||"carrier") + " acct " + (body.shipAccount||"(not provided)")).slice(0,80)) : "";
   const shipMethodLabel = SHIP_SPEEDS[speed].label + (speed==="pickup" ? " (free)" : "") + acctInfo;
-  const notes = (summary + " | " + shipMethodLabel + (body.matCert?" | Material cert":"") + " | Paid via Stripe").slice(0, 495);
+  const engTxt = engHours > 0 ? ("Engineering services " + engHours + "h @ $" + RULES.engRate + "/hr") : "";
+  const detail = [summary, engTxt].filter(Boolean).join(" | ") || "SLS parts";
+  const notes = (detail + " | " + shipMethodLabel + (body.matCert?" | Material cert":"") + " | Paid via Stripe").slice(0, 495);
 
   let ret = (body.returnUrl && /^https?:\/\//.test(body.returnUrl)) ? body.returnUrl : (req.headers.get("origin") || "");
   const sep = ret.includes("?") ? "&" : "?";
@@ -164,7 +167,7 @@ export default async (req) => {
   f.append("billing_address_collection", "required");  // gives Stripe the address it needs for tax
   f.append("line_items[0][price_data][currency]", "usd");
   f.append("line_items[0][price_data][product_data][name]", "3DPX SLS order - Nylon 12 (PA12)");
-  f.append("line_items[0][price_data][product_data][description]", summary || "SLS parts");
+  f.append("line_items[0][price_data][product_data][description]", detail);
   f.append("line_items[0][price_data][product_data][tax_code]", "txcd_99999999");  // general tangible goods
   f.append("line_items[0][price_data][tax_behavior]", "exclusive");  // tax added on top of the amount
   f.append("line_items[0][price_data][unit_amount]", String(amount));
@@ -185,6 +188,7 @@ export default async (req) => {
     f.append("metadata[ship_account]", (body.shipAccount||"").slice(0,80));
   }
   f.append("metadata[material_cert]", body.matCert ? "yes" : "no");
+  f.append("metadata[eng_hours]", String(engHours));
   f.append("metadata[total_parts]", String(totalParts));
   f.append("metadata[total_vol]", String(totalVol));
   f.append("metadata[lead_days]", String(leadDaysCalc(parts)));

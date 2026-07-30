@@ -128,7 +128,7 @@ export default async (req) => {
   try { body = await req.json(); } catch { return json({ error: "Bad request" }, 400); }
 
   const parts = Array.isArray(body.parts) ? body.parts : [];
-  if (!parts.length) return json({ error: "No parts in order." }, 400);
+  // Engineering-only orders carry no parts; validated after engHours is resolved below.
   const po = (body.po || "").toString().trim();
   const approved = !!body.approved;   // internal "approved in writing" order — no card, PO optional
   if (!po && !approved) return json({ error: "A PO number is required." }, 400);
@@ -144,6 +144,7 @@ export default async (req) => {
   if (body.quoteId && /^Q-[A-Za-z0-9]{4,12}$/.test(body.quoteId)) {
     try { const { getStore } = await import("@netlify/blobs"); const q = await getStore("orders").get("Q-QUOTES/" + body.quoteId + ".json", { type: "json" }); if (q && typeof q.addlDisc === "number") addlDisc = Math.max(0, q.addlDisc); if (q && typeof q.engHours === "number") engHours = Math.max(0, q.engHours); if (q && Array.isArray(q.parts)) q.parts.forEach((qp, i) => { if (parts[i] && qp && +qp.override > 0) parts[i].ov = +qp.override; if (parts[i] && qp && +qp.vsPrice > 0) parts[i].vsp = +qp.vsPrice; }); } catch (e) {}
   }
+  if (!parts.length && !(engHours > 0)) return json({ error: "No parts or engineering services in order." }, 400);
   const promoPct = PROMO[String(body.promo||"").trim().toUpperCase()] || 0;
   const price = orderTotal(parts, body.region, !!body.matCert, speed, body.zip, addlDisc, promoPct, engHours*RULES.engRate);
   const totalParts = parts.reduce((s,p)=>s+(Math.max(1,parseInt(p.qty)||1)),0);
@@ -164,7 +165,9 @@ export default async (req) => {
   const notesPrefix = approved
     ? ("*** WEB APPROVED ORDER — no card — written approval on file; invoice on terms ***" + (po ? (" | Customer PO: " + po) : ""))
     : ("*** WEB PO / INVOICE ORDER — UNPAID — verify credit & confirm price before production *** | Customer PO: " + po);
-  const notes = (notesPrefix + " | " + summary + " | " + shipMethod + (body.matCert?" | Material cert":"")).slice(0, 495);
+  const engTxt = engHours > 0 ? ("Engineering services " + engHours + "h @ $" + RULES.engRate + "/hr") : "";
+  const detail = [summary, engTxt].filter(Boolean).join(" | ") || "(no parts)";
+  const notes = (notesPrefix + " | " + detail + " | " + shipMethod + (body.matCert?" | Material cert":"")).slice(0, 495);
 
   const contactVal = (body.name || "") + (body.email ? " <" + body.email + ">" : "");
   const due = /^\d{4}-\d{2}-\d{2}$/.test(String(body.dueDate||"")) ? body.dueDate : addBusinessDays(new Date(), leadDaysCalc(parts)).toISOString().slice(0,10);
