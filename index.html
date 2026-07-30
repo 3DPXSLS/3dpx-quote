@@ -853,7 +853,8 @@ function render(){
    if(sb){ if(t.saved>0.005){sb.style.display="inline-block";sb.textContent="You save "+money(t.saved)+"  ·  "+Math.round(t.saved/t.gross*100)+"% off";} else sb.style.display="none"; }}
   const pcs=parts.reduce((s,p)=>s+(p.qty||0),0);
   let lines="";
-  lines+=`<div class="oline"><span>Parts</span><b>${parts.length} part${parts.length===1?"":"s"} · ${pcs} pc${pcs===1?"":"s"}</b></div>`;
+  if(t.eng>0) lines+=`<div class="oline"><span>Engineering services (${t.engHours} hr @ ${money(RULES.engRate)}/hr)</span><b>${money(t.eng)}</b></div>`;
+  if(parts.length) lines+=`<div class="oline"><span>Parts</span><b>${parts.length} part${parts.length===1?"":"s"} · ${pcs} pc${pcs===1?"":"s"}</b></div>`;
   lines+=`<div class="oline"><span>Subtotal</span><b>${money(t.gross)}</b></div>`;
   if(t.promoApplied){
     lines+=`<div class="oline save"><span>Promo ${esc(t.promoCode)} (${t.promoPct}% off list)</span><b>−${money(t.saved)}</b></div>`;
@@ -869,7 +870,6 @@ function render(){
   lines+=`<div class="oline"><span>Sales tax</span><b>calculated at checkout</b></div>`;
   lines+=REP_DUE?`<div class="oline"><span>⏱ Due date</span><b>${new Date(REP_DUE+"T00:00:00").toLocaleDateString("en-US")}</b></div>`:`<div class="oline"><span>⏱ Est. lead time</span><b>${orderLeadDays()} business days</b></div>`;
   if(t.matCert>0) lines+=`<div class="oline"><span>Material certification</span><b>${money(t.matCert)}</b></div>`;
-  if(t.eng>0) lines+=`<div class="oline"><span>Engineering services (${t.engHours} hr @ ${money(RULES.engRate)}/hr)</span><b>${money(t.eng)}</b></div>`;
   const hasUnpriced=parts.some(p=>p.manual&&!(p.override>0));
   if(hasUnpriced) lines+=`<div class="oline"><span style="color:#8a5a00">Manual-quote item(s)</span><b style="color:#8a5a00">priced by our team</b></div>`;
   lines+=`<div class="oline tot"><span>Estimated total${hasUnpriced?" (excl. manual items)":""}</span><b>${money(t.total)}</b></div>`;
@@ -894,7 +894,15 @@ function esc(s){return(s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"
 function quoteNum(){const d=new Date();return "WEB-"+d.getFullYear()+(""+(d.getMonth()+1)).padStart(2,"0")+(""+d.getDate()).padStart(2,"0")+"-"+(""+d.getHours()).padStart(2,"0")+(""+d.getMinutes()).padStart(2,"0");}
 function buildQuoteDoc(qn){
   const t=orderTotals();
-  const rows=parts.map((p,i)=>{const c=lineCalc(p);const ldf=lineFactor(c,t);const dpct=(c.fixed||c.manual)?0:Math.round((1-(c.net*ldf)/c.list)*100);const bd="border-bottom:1px solid #eef2f8";const bg=i%2?"background:#fafbfd;":"";const spec="SLS · Nylon 12 (PA12) · "+(p.dye?("Dyed "+COLORS[partColor(p)].label):"White (Natural)")+" · "+finishLabel(p)+(p.vs?(" (VS +"+money(vsAmount(p))+"/pc)"):"");return `<tr style="${bg}">
+  const engRow=t.eng>0?`<tr style="background:#fff7f0">
+    <td style="padding:8px 6px;border-bottom:1px solid #eef2f8"><span style="font-weight:600">Engineering services</span></td>
+    <td style="padding:8px 6px;border-bottom:1px solid #eef2f8;font-size:11px;color:#42506b">Engineering / design services · ${money(RULES.engRate)}/hr</td>
+    <td style="padding:8px 6px;border-bottom:1px solid #eef2f8;font-size:11px">—</td>
+    <td style="padding:8px 6px;border-bottom:1px solid #eef2f8;text-align:center">${t.engHours} hr</td>
+    <td style="padding:8px 6px;border-bottom:1px solid #eef2f8;text-align:right">${money(RULES.engRate)}</td>
+    <td style="padding:8px 6px;border-bottom:1px solid #eef2f8;text-align:right">${money(t.eng)}</td>
+    <td style="padding:8px 6px;border-bottom:1px solid #eef2f8;text-align:right;font-weight:700;color:#1e9e6a">${money(t.eng)}</td></tr>`:"";
+  const rows=engRow+parts.map((p,i)=>{const c=lineCalc(p);const ldf=lineFactor(c,t);const dpct=(c.fixed||c.manual)?0:Math.round((1-(c.net*ldf)/c.list)*100);const bd="border-bottom:1px solid #eef2f8";const bg=i%2?"background:#fafbfd;":"";const spec="SLS · Nylon 12 (PA12) · "+(p.dye?("Dyed "+COLORS[partColor(p)].label):"White (Natural)")+" · "+finishLabel(p)+(p.vs?(" (VS +"+money(vsAmount(p))+"/pc)"):"");return `<tr style="${bg}">
     <td style="padding:8px 6px;${bd}"><div style="display:flex;align-items:center;gap:8px">${p.thumb?`<img src="${p.thumb}" style="width:34px;height:34px;border:1px solid #e2e8f2;border-radius:5px;object-fit:contain">`:""}<span style="font-weight:600">${esc(p.name)}</span></div></td>
     <td style="padding:8px 6px;${bd};font-size:11px;color:#42506b">${spec}</td>
     <td style="padding:8px 6px;${bd};font-size:11px">${p.x}×${p.y}×${p.z} mm</td>
@@ -1139,10 +1147,12 @@ function buildQuotePDF(orderNo,opts){
   const meta=[["Quote #",orderNo],["Date",orderDate],["Valid","30 days"]]; if(opts.po)meta.push(["PO",opts.po]);
   let my=y; meta.forEach(m=>{doc.setFont("helvetica","bold");doc.text(m[0],W-M-150,my);doc.setFont("helvetica","normal");doc.text(String(m[1]),W-M,my,{align:"right"});my+=14;});
   y=Math.max(py,my)+8;
-  const rows=parts.map((p,i)=>{const c=lineCalc(p);const ldf=lineFactor(c,t);const clr=p.dye?COLORS[partColor(p)].label:"White (Natural)";
+  const engRowPdf=t.eng>0?[["","Engineering services","Engineering / design services · "+money(RULES.engRate)+"/hr",t.engHours+" hr",money(RULES.engRate),money(t.eng),money(t.eng)]]:[];
+  const partRows=parts.map((p,i)=>{const c=lineCalc(p);const ldf=lineFactor(c,t);const clr=p.dye?COLORS[partColor(p)].label:"White (Natural)";
     const desc="SLS · Nylon 12 (PA12) · "+(p.dye?("Dyed "+clr):"White (Natural)")+(p.vs?(" · Vapor smoothed (+"+money(vsAmount(p))+"/pc)"):"")+(p.tumble?" · Tumbled":"")+(insertCount(p)?(" · "+insertCount(p)+" inserts"):"")+(tapCount(p)?(" · "+tapCount(p)+" tapped"):"")+(inspCount(p)?(" · "+inspCount(p)+"-pt inspection"):"")+(c.manual?" · quote pending":"");
     const listUnit=c.manual?"—":money(c.list), listLine=c.manual?"—":money(c.lineList), discUnit=c.manual?"quote pending":money(c.net*ldf);
-    return [String(i+1),p.name,desc,String(p.qty),listUnit,listLine,discUnit];});
+    return ["",p.name,desc,String(p.qty),listUnit,listLine,discUnit];});
+  const rows=engRowPdf.concat(partRows); rows.forEach((r,i)=>r[0]=String(i+1));
   doc.autoTable({startY:y,head:[["#","Item","Description","Qty","Unit price","Line total","Disc. unit"]],body:rows,
     theme:"grid",styles:{fontSize:9,cellPadding:5,textColor:INK,lineColor:[210,216,226],valign:"middle"},
     headStyles:{fillColor:NAVY,textColor:[255,255,255],fontStyle:"bold",halign:"center"},
