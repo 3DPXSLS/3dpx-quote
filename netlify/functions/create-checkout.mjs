@@ -12,7 +12,7 @@ const RULES = { volRate0:0.65, volRate100:0.55, bboxRate0:0.04, bboxRate100:0.03
   packBaseLb:0.6, packPerPartLb:0.05, packFactor:2.0, dimDivisor:139,
   shipRegionMult:{us:1.0, camx:1.6, intl:2.5},
   zoneStep:0.09, zoneMultMin:0.80, zoneMultMax:1.35,
-  matCertFee:100, engRate:124 };
+  matCertFee:100, engRate:125 };
 // Dest ZIP first digit -> rough ground zone from Chicago (606). Keep in sync with the widget.
 const ZIP_ZONE = {'0':5,'1':5,'2':5,'3':4,'4':3,'5':4,'6':2,'7':5,'8':6,'9':7};
 function zoneMult(zip, region) {

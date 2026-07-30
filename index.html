@@ -187,7 +187,7 @@
   <div id="repTools" style="display:none;margin:6px 0 4px;border:1px dashed #b9cdf0;border-radius:10px;padding:14px 16px;background:#f4f8ff">
     <div style="font-weight:700;color:#1b2a4a;margin-bottom:8px">Rep tools <span style="font-weight:500;color:#8a95a8;font-size:12px">· internal only</span></div>
     <div class="contact" style="margin:0">
-      <div><label>Engineering services (hours @ $124/hr)</label><input id="engHours" type="number" min="0" step="0.25" placeholder="0"></div>
+      <div><label>Engineering services (hours @ $125/hr)</label><input id="engHours" type="number" min="0" step="0.25" placeholder="0"></div>
       <div><label>Additional discount (% off order)</label><input id="addlDisc" type="number" min="0" max="100" step="0.5" placeholder="0"></div>
       <div><label>Custom due date (optional)</label><input id="repDue" type="date"></div>
       <div><label>Material price check</label><div id="perCcReadout" style="padding:9px 0;font-weight:700;color:#1b2a4a">$0.00 / cm³</div></div>
@@ -377,7 +377,7 @@ const RULES = {
   // US distance: dest ZIP first digit → approx carrier zone from Chicago (606); mult = 1 + (zone-4)*zoneStep.
   zoneStep:0.09, zoneMultMin:0.80, zoneMultMax:1.35,
   matCertFee:100,  // flat order-level material-certification add-on
-  engRate:124     // engineering services $/hour (rep-only order-level line)
+  engRate:125     // engineering services $/hour (rep-only order-level line)
 };
 /* Dest ZIP first digit → rough ground zone from Chicago, IL (606). Edit if your carrier chart differs. */
 const ZIP_ZONE = {'0':5,'1':5,'2':5,'3':4,'4':3,'5':4,'6':2,'7':5,'8':6,'9':7};
@@ -490,7 +490,7 @@ function unitPrice(p){
   return u;
 }
 let ADDL_DISC=0;  // rep-set additional discount ($ off), internal only
-let ENG_HOURS=0;  // rep-set engineering-services hours @ $124/hr, internal only
+let ENG_HOURS=0;  // rep-set engineering-services hours @ $125/hr, internal only
 let REP_DUE="";   // rep-set custom due date (YYYY-MM-DD), internal only; blank = auto from lead time
 const PROMO_CODES={"3DPXSAVE10":10, "3DPXSAVE5":5};  // customer promo codes → % off LIST price. Editable. Customer gets the BETTER of the promo or the automatic discounts, not both.
 let PROMO_CODE="", PROMO_PCT=0;          // resolved from the code the customer typed (0 = none/invalid)
