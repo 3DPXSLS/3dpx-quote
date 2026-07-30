@@ -99,6 +99,7 @@
   .summary .sumright{text-align:right;display:flex;flex-direction:column;justify-content:center;align-items:flex-end;min-width:210px;border-left:1px solid rgba(255,255,255,.15);padding-left:22px}
   .summary .totlabel{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#8ea0bf}
   .summary .num{font-size:34px;font-weight:800;line-height:1.05}
+  .summary .savedbadge{display:inline-block;background:rgba(87,217,154,.15);color:#57d99a;border:1px solid rgba(87,217,154,.55);font-weight:700;font-size:13.5px;padding:5px 13px;border-radius:999px;margin:8px 0 2px}
   .summary .totnote{font-size:11px;color:#8ea0bf;margin-bottom:14px}
   .summary .btns{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}
   @media(max-width:560px){.summary .sumright{border-left:none;border-top:1px solid rgba(255,255,255,.15);padding-left:0;padding-top:14px;align-items:flex-start;text-align:left;width:100%}}
@@ -107,6 +108,19 @@
   .btn.orange{background:var(--orange);color:#fff}
   .btn.ghost{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.3)}
   .btn:disabled{opacity:.45;cursor:not-allowed}
+  .repactions{display:none;margin-top:16px;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:var(--shadow);padding:16px 18px}
+  .repactions .rahead{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:12px}
+  .repactions .rahead span{font-weight:500;color:var(--muted);font-size:12px}
+  .repcols{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}
+  .repcol .rtitle{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+  .ract{display:block;width:100%;text-align:left;border:1px solid var(--line2);background:#fff;border-radius:9px;padding:10px 12px;margin-bottom:8px;cursor:pointer;font-family:inherit}
+  .ract:hover{border-color:var(--navy);background:#f8fafc}
+  .ract:disabled{opacity:.45;cursor:not-allowed}
+  .ract b{display:block;color:var(--navy);font-size:13.5px;font-weight:600}
+  .ract .rd{display:block;color:var(--muted);font-size:11.5px;margin-top:3px;line-height:1.4;font-weight:400}
+  .ract.primary{border-color:var(--orange);background:#fff8f4}
+  .ract.primary:hover{background:#fff2ea}
+  .ract.primary b{color:#c2410c}
   .fine{color:var(--muted);font-size:12px;margin-top:14px}
   .empty{color:var(--muted);font-size:14px;padding:8px 0}
   .bulkbar{display:none;align-items:center;flex-wrap:wrap;gap:8px;background:#fff;border:1px solid var(--line);
@@ -251,9 +265,9 @@
     <div class="sumright">
       <div class="totlabel">Estimated total</div>
       <div class="num" id="total">$0.00</div>
+      <div class="savedbadge" id="savedBadge" style="display:none"></div>
       <div class="totnote">excl. tax &amp; shipping</div>
       <div class="btns">
-        <button class="btn ghost" id="emailBtn">Email quote</button>
         <button class="btn ghost" id="dlBtn">Download PDF</button>
         <button class="btn ghost" id="custSaveBtn" title="Save your quote and get a reference number you can send us">Save my quote</button>
         <button class="btn orange" id="payBtn" style="display:none">Order &amp; pay</button>
@@ -267,6 +281,28 @@
     </div>
   </div>
   <div id="quoteLinkBox" style="display:none;margin-top:14px;background:#f5f8fc;border:1px solid #d5e0f0;border-radius:10px;padding:14px 16px;font-size:13px;color:#1b2330"></div>
+  <div class="repactions" id="repActions">
+    <div class="rahead">Rep actions <span>· internal only</span></div>
+    <div class="repcols">
+      <div class="repcol">
+        <div class="rtitle">1 · Send a quote</div>
+        <button class="ract primary" data-do="saveQuoteBtn"><b>Save &amp; send to customer</b><span class="rd">Saves the quote and gives you a customer link + one-click edit link; downloads the quote PDF to attach.</span></button>
+        <button class="ract" data-do="dlBtn"><b>Download PDF</b><span class="rd">Customer-facing quote PDF (with part thumbnails).</span></button>
+      </div>
+      <div class="repcol">
+        <div class="rtitle">2 · Place an order</div>
+        <button class="ract primary" data-do="payBtn"><b>Order &amp; pay</b><span class="rd">Charge a card via Stripe; routes straight into production.</span></button>
+        <button class="ract" data-do="poBtn"><b>Submit PO (invoice)</b><span class="rd">Order on terms, no card — lands as Pre Sale for approval.</span></button>
+        <button class="ract" data-do="approvedBtn"><b>Create order — approved</b><span class="rd">Write the order now, no card (cleared account, invoice on terms).</span></button>
+      </div>
+      <div class="repcol">
+        <div class="rtitle">3 · Documents</div>
+        <button class="ract" data-do="quoteBtn"><b>Preview quote</b><span class="rd">Download the internal attached quote PDF (columnar, no thumbnails).</span></button>
+        <button class="ract" data-do="travBtn"><b>Preview traveler</b><span class="rd">Download the per-part production traveler.</span></button>
+        <button class="ract" data-do="packBtn"><b>Preview packing slip</b><span class="rd">Download the customer packing slip.</span></button>
+      </div>
+    </div>
+  </div>
   <div class="ordernote" id="orderNote">
     <div style="font-weight:700;color:#1b2a4a;font-size:15px;letter-spacing:.2px">How to place your order</div>
     <div style="margin-top:12px;border-top:1px solid #e2e8f2">
@@ -800,6 +836,8 @@ function render(){
   document.getElementById("orderNote").style.display=has?"block":"none";
   const t=orderTotals();
   document.getElementById("total").textContent=money(t.total);
+  {const sb=document.getElementById("savedBadge");
+   if(sb){ if(t.saved>0.005){sb.style.display="inline-block";sb.textContent="You save "+money(t.saved)+"  ·  "+Math.round(t.saved/t.gross*100)+"% off";} else sb.style.display="none"; }}
   const pcs=parts.reduce((s,p)=>s+(p.qty||0),0);
   let lines="";
   lines+=`<div class="oline"><span>Parts</span><b>${parts.length} part${parts.length===1?"":"s"} · ${pcs} pc${pcs===1?"":"s"}</b></div>`;
@@ -824,6 +862,7 @@ function render(){
   document.getElementById("orderLines").innerHTML=lines;
   const _pay=document.getElementById("payBtn");
   if(_pay){ _pay.disabled=hasUnpriced; _pay.style.opacity=hasUnpriced?"0.5":""; _pay.title=hasUnpriced?"An item needs a manual quote — use Email quote, Submit PO, or request a payment link":""; }
+  {const rp=document.querySelector('#repActions .ract[data-do="payBtn"]'); if(rp){rp.disabled=hasUnpriced; rp.title=hasUnpriced?"An item needs a manual quote — use Submit PO or set a price override":"";}}
   const pcEl=document.getElementById("perCcReadout"); if(pcEl) pcEl.textContent="$"+t.perCc.toFixed(2)+" / cm³"+(t.addlPct>0?("  ·  addl "+t.addlPct+"% (−"+money(t.addlDisc)+")"):"")+"  ·  vol "+Math.round(t.totalVol)+" cm³";
   const ov=nextValueTier(t.gross),on=document.getElementById("orderNudge");
   if(ov&&parts.length){on.style.display="block";
@@ -841,14 +880,14 @@ function esc(s){return(s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"
 function quoteNum(){const d=new Date();return "WEB-"+d.getFullYear()+(""+(d.getMonth()+1)).padStart(2,"0")+(""+d.getDate()).padStart(2,"0")+"-"+(""+d.getHours()).padStart(2,"0")+(""+d.getMinutes()).padStart(2,"0");}
 function buildQuoteDoc(qn){
   const t=orderTotals();
-  const rows=parts.map((p,i)=>{const c=lineCalc(p);const ldf=lineFactor(c,t);const dpct=c.fixed?0:Math.round((1-(c.net*ldf)/c.list)*100);const bd="border-bottom:1px solid #eef2f8";const bg=i%2?"background:#fafbfd;":"";return `<tr style="${bg}">
+  const rows=parts.map((p,i)=>{const c=lineCalc(p);const ldf=lineFactor(c,t);const dpct=(c.fixed||c.manual)?0:Math.round((1-(c.net*ldf)/c.list)*100);const bd="border-bottom:1px solid #eef2f8";const bg=i%2?"background:#fafbfd;":"";const spec="SLS · Nylon 12 (PA12) · "+(p.dye?("Dyed "+COLORS[partColor(p)].label):"White (Natural)")+" · "+finishLabel(p);return `<tr style="${bg}">
     <td style="padding:8px 6px;${bd}"><div style="display:flex;align-items:center;gap:8px">${p.thumb?`<img src="${p.thumb}" style="width:34px;height:34px;border:1px solid #e2e8f2;border-radius:5px;object-fit:contain">`:""}<span style="font-weight:600">${esc(p.name)}</span></div></td>
-    <td style="padding:8px 6px;${bd};font-size:11px;color:#42506b">SLS · Nylon 12 · ${p.dye?("Dyed "+COLORS[partColor(p)].label):"White"}</td>
-    <td style="padding:8px 6px;${bd}">${p.x}×${p.y}×${p.z} mm<div style="font-size:10px;color:#6b7891">${(p.x/25.4).toFixed(2)}×${(p.y/25.4).toFixed(2)}×${(p.z/25.4).toFixed(2)} in</div></td>
-    <td style="padding:8px 6px;${bd}">${finishLabel(p)}${dpct>0?` <span style="color:#1e9e6a">(−${dpct}%)</span>`:""}</td>
+    <td style="padding:8px 6px;${bd};font-size:11px;color:#42506b">${spec}</td>
+    <td style="padding:8px 6px;${bd};font-size:11px">${p.x}×${p.y}×${p.z} mm</td>
     <td style="padding:8px 6px;${bd};text-align:center">${p.qty}</td>
-    <td style="padding:8px 6px;${bd};text-align:right">${money(c.net*ldf)}</td>
-    <td style="padding:8px 6px;${bd};text-align:right;font-weight:700">${money(c.lineNet*ldf)}</td></tr>`;}).join("");
+    <td style="padding:8px 6px;${bd};text-align:right">${c.manual?"—":money(c.list)}</td>
+    <td style="padding:8px 6px;${bd};text-align:right">${c.manual?"—":money(c.lineList)}</td>
+    <td style="padding:8px 6px;${bd};text-align:right;font-weight:700;color:#1e9e6a">${c.manual?"pending":money(c.net*ldf)}${dpct>0?`<div style="font-size:9px;color:#1e9e6a;font-weight:600">−${dpct}% off</div>`:""}</td></tr>`;}).join("");
   const name=v("cName"),co=v("cCo"),email=v("cEmail"),phone=v("cPhone");
   const acctLine=t.account?`${v("sCarrier")||"Carrier"} account ${v("sAcct")||"(number to be provided)"}`:"";
   const ship=t.pickup?"Pickup at 3DPX — 410 N. Milwaukee, Chicago, IL 60654":([v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", ")+(t.account?` · Ship via ${acctLine}`:""));
@@ -881,10 +920,11 @@ function buildQuoteDoc(qn){
     <div style="background:#1b2a4a;color:#fff;font-size:10.5px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;padding:7px 12px;border-radius:6px">Manufacturing services · SLS · Nylon 12</div>
     <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:10px">
       <thead><tr style="background:#eef2f8;color:#1b2a4a;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px">
-        <th style="padding:8px 6px">Part</th><th style="padding:8px 6px">Process / material</th>
-        <th style="padding:8px 6px">Size</th><th style="padding:8px 6px">Finish</th>
+        <th style="padding:8px 6px">Part</th><th style="padding:8px 6px">Process / material / finish</th>
+        <th style="padding:8px 6px">Size (mm)</th>
         <th style="padding:8px 6px;text-align:center">Qty</th>
-        <th style="padding:8px 6px;text-align:right">Unit</th><th style="padding:8px 6px;text-align:right">Line</th></tr></thead>
+        <th style="padding:8px 6px;text-align:right">Unit price</th><th style="padding:8px 6px;text-align:right">Line total</th>
+        <th style="padding:8px 6px;text-align:right">Disc. unit</th></tr></thead>
       <tbody>${rows}</tbody></table>
     <div style="display:flex;justify-content:flex-end;margin-top:16px">
      <div style="width:300px;font-size:12.5px">
@@ -892,6 +932,7 @@ function buildQuoteDoc(qn){
       ${t.qtyDisc>0.005?`<div style="display:flex;justify-content:space-between;padding:3px 0;color:#1e9e6a"><span>Quantity discount</span><span>−${money(t.qtyDisc)}</span></div>`:""}
       ${t.valDisc>0.005?`<div style="display:flex;justify-content:space-between;padding:3px 0;color:#1e9e6a"><span>Order-value discount (${t.valPct}%)</span><span>−${money(t.valDisc)}</span></div>`:""}
       ${t.promoApplied?`<div style="display:flex;justify-content:space-between;padding:3px 0;color:#1e9e6a"><span>Promo ${esc(t.promoCode)} (${t.promoPct}% off list)</span><span>−${money(t.saved)}</span></div>`:""}
+      ${t.saved>0.005?`<div style="display:flex;justify-content:space-between;padding:5px 0 3px;color:#1b2a4a;font-weight:700;border-top:1px solid #eef2f8;margin-top:2px"><span>Subtotal after discount</span><span>${money(t.gross-t.saved)}</span></div>`:""}
       ${t.topUp>0?`<div style="display:flex;justify-content:space-between;padding:3px 0"><span>Order minimum top-up</span><span>${money(t.topUp)}</span></div>`:""}
       <div style="display:flex;justify-content:space-between;padding:3px 0;color:#42506b"><span>${shipRowLabel}</span><span>${shipRowVal}</span></div>
       <div style="display:flex;justify-content:space-between;padding:3px 0;color:#42506b"><span>Sales tax</span><span>calculated at checkout</span></div>
@@ -918,22 +959,7 @@ document.getElementById("dlBtn").onclick=()=>{
   document.title="3DPX Quote "+qn;
   window.print();
 };
-document.getElementById("emailBtn").onclick=()=>{
-  if(!validEmail())return;
-  const qn=quoteNum(),t=orderTotals();
-  const ship=t.pickup?"Pickup at 3DPX (Chicago, IL)":([v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "));
-  const deliv=t.account?`My own carrier account — ${v("sCarrier")||"carrier"} ${v("sAcct")||"(number to be provided)"}`:`${SHIP_SPEEDS[t.speed].label} (${SHIP_SPEEDS[t.speed].eta})`;
-  let body=`New SLS quote request%0D%0A%0D%0AQuote #: ${qn}%0D%0AName: ${v("cName")}%0D%0ACompany: ${v("cCo")}%0D%0AEmail: ${v("cEmail")}%0D%0APhone: ${v("cPhone")}%0D%0ADelivery: ${deliv}%0D%0AShip to: ${ship||"(not provided)"}%0D%0A%0D%0APARTS:%0D%0A`;
-  parts.forEach((p,i)=>{const c=lineCalc(p);
-    body+=`${i+1}. ${p.name} | qty ${p.qty} | ${p.x}x${p.y}x${p.z}mm | ${p.vol}cc | ${finishLabel(p)} | ${money(c.net)} ea = ${money(c.lineNet)}${c.qp>0?` (${c.qp}% qty disc)`:""}%0D%0A`;});
-  body+=`%0D%0ASubtotal (list): ${money(t.gross)}`;
-  if(t.saved>0.005) body+=`%0D%0ADiscounts: -${money(t.saved)}`;
-  body+=t.pickup?`%0D%0APickup at 3DPX: Free`:t.account?`%0D%0AShipping: billed to your carrier account (${v("sCarrier")||"carrier"} ${v("sAcct")||""})`:`%0D%0AShipping · ${SHIP_SPEEDS[t.speed].label}${t.billableLb>0?` (~${t.billableLb.toFixed(1)} lb)`:""}: ${t.shipping>0?money(t.shipping):"quoted separately"}`;
-  if(t.matCert>0) body+=`%0D%0AMaterial certification: ${money(t.matCert)}`;
-  body+=`%0D%0AEst. lead time: ${orderLeadDays()} business days`;
-  body+=`%0D%0AESTIMATED TOTAL: ${money(t.total)} (ex tax & shipping)%0D%0A%0D%0A** Please attach your STL file(s) to this email. **`;
-  window.location.href=`mailto:sales@3dpx.com?subject=SLS Quote Request ${qn} - ${encodeURIComponent(v("cCo")||v("cName")||"Web")}&body=${body}`;
-};
+/* Email-quote button removed — 3DPX does not email quotes (use Download PDF / Save & send). */
 
 /* ---- wire up ---- */
 const drop=document.getElementById("drop");
@@ -1100,16 +1126,16 @@ function buildQuotePDF(orderNo,opts){
   y=Math.max(py,my)+8;
   const rows=parts.map((p,i)=>{const c=lineCalc(p);const ldf=lineFactor(c,t);const clr=p.dye?COLORS[partColor(p)].label:"White (Natural)";
     const desc="SLS · Nylon 12 (PA12) · "+(p.dye?("Dyed "+clr):"White (Natural)")+(p.vs?" · Vapor smoothed":"")+(p.tumble?" · Tumbled":"")+(insertCount(p)?(" · "+insertCount(p)+" inserts"):"")+(tapCount(p)?(" · "+tapCount(p)+" tapped"):"")+(inspCount(p)?(" · "+inspCount(p)+"-pt inspection"):"")+(c.manual?" · quote pending":"");
-    const unit=c.manual?"—":money(c.net*ldf), line=c.manual?"manual quote":money(c.lineNet*ldf);
-    return [String(i+1),"",p.name,desc,String(p.qty),unit,line];});
-  doc.autoTable({startY:y,head:[["#","","Item","Description","Qty","Unit","Line"]],body:rows,
-    theme:"grid",styles:{fontSize:9.5,cellPadding:6,textColor:INK,lineColor:[210,216,226],minCellHeight:34,valign:"middle"},
-    headStyles:{fillColor:NAVY,textColor:[255,255,255],fontStyle:"bold"},
-    columnStyles:{0:{cellWidth:22,halign:"center"},1:{cellWidth:38,halign:"center"},2:{cellWidth:116},3:{cellWidth:CW-330,halign:"left"},4:{cellWidth:38,halign:"center"},5:{cellWidth:58,halign:"right"},6:{cellWidth:58,halign:"right"}},
-    didDrawCell:(d)=>{if(d.section==="body"&&d.column.index===1){const p=parts[d.row.index];if(p&&p.thumb){try{const s=Math.min(d.cell.height,d.cell.width)-6;doc.addImage(p.thumb,"PNG",d.cell.x+(d.cell.width-s)/2,d.cell.y+(d.cell.height-s)/2,s,s);}catch(e){}}}},
+    const listUnit=c.manual?"—":money(c.list), listLine=c.manual?"—":money(c.lineList), discUnit=c.manual?"quote pending":money(c.net*ldf);
+    return [String(i+1),p.name,desc,String(p.qty),listUnit,listLine,discUnit];});
+  doc.autoTable({startY:y,head:[["#","Item","Description","Qty","Unit price","Line total","Disc. unit"]],body:rows,
+    theme:"grid",styles:{fontSize:9,cellPadding:5,textColor:INK,lineColor:[210,216,226],valign:"middle"},
+    headStyles:{fillColor:NAVY,textColor:[255,255,255],fontStyle:"bold",halign:"center"},
+    columnStyles:{0:{cellWidth:22,halign:"center"},1:{cellWidth:118},2:{cellWidth:CW-356,halign:"left",fontSize:8},3:{cellWidth:34,halign:"center"},4:{cellWidth:58,halign:"right"},5:{cellWidth:60,halign:"right"},6:{cellWidth:64,halign:"right",textColor:[30,158,106],fontStyle:"bold"}},
     margin:{left:M,right:M}});
-  const rowsT=[["Subtotal",money(t.gross)]];
-  if(t.saved>0.005)rowsT.push([t.promoApplied?("Promo "+t.promoCode+" ("+t.promoPct+"% off)"):("Discounts"+(t.addlPct>0?" (incl "+t.addlPct+"% add'l)":"")),"-"+money(t.saved)]);
+  const rowsT=[["Subtotal (list)",money(t.gross)]];
+  if(t.saved>0.005)rowsT.push([t.promoApplied?("Promo "+t.promoCode+" ("+t.promoPct+"% off)"):("Discount"+(t.addlPct>0?" (incl "+t.addlPct+"% add'l)":"")),"-"+money(t.saved)]);
+  if(t.saved>0.005)rowsT.push(["Subtotal after discount",money(t.gross-t.saved)]);
   if(t.topUp>0)rowsT.push(["Order minimum top-up",money(t.topUp)]);
   const shipVal=t.pickup?"Free (pickup)":(t.account?"Billed to your account":(t.shipping>0?money(t.shipping):"quoted separately"));
   rowsT.push(["Est. shipping ("+(t.pickup?"pickup":t.account?"your account":SHIP_SPEEDS[t.speed].label)+")",shipVal]);
@@ -1409,6 +1435,10 @@ if(INTERNAL){
   const tb=document.getElementById("travBtn");if(tb){tb.style.display="";tb.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildTravelerPDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});if(d)d.save("traveler-"+genOrderNo()+".pdf");};}
   const pk=document.getElementById("packBtn");if(pk){pk.style.display="";pk.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildPackingSlipPDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});if(d)d.save("packing-slip-"+genOrderNo()+".pdf");};}
   const qbn=document.getElementById("quoteBtn");if(qbn){qbn.style.display="";qbn.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildQuotePDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});if(d)d.save("quote-"+genOrderNo()+".pdf");};}
+  // Rep actions panel: labeled buttons that trigger the (now hidden) summary buttons' handlers.
+  const rap=document.getElementById("repActions");if(rap)rap.style.display="block";
+  document.querySelectorAll("#repActions .ract").forEach(b=>b.onclick=()=>{const t=document.getElementById(b.dataset.do);if(t)t.click();});
+  const sbtns=document.querySelector(".summary .btns");if(sbtns)sbtns.style.display="none";
 }
 (function(){const q=_URLP.get("quote");if(q&&/^Q-[A-Za-z0-9]{4,12}$/.test(q))loadQuote(q);})();
 
