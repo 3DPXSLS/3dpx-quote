@@ -623,7 +623,8 @@ function geoToSTL(pos){
 
 /* ---- state ---- */
 let parts=[], pid=0;
-const MAX_UPLOAD=4.5*1024*1024, MAX_UPLOAD_MB=4.5;  // ~4.5 MB effective upload limit (Netlify function body); larger files must be emailed in
+const MAX_UPLOAD=30*1024*1024, MAX_UPLOAD_MB=30;  // 30 MB ceiling; big files upload in chunks (below) to bypass Netlify's ~4.5MB function-body cap
+const UPLOAD_CHUNK=3.5*1024*1024;                  // per-request chunk size, safely under the Netlify function body limit
 function oversized(p){return !!(p&&p.fileBuf&&p.fileBuf.byteLength>MAX_UPLOAD);}
 function fileMB(buf){return (buf.byteLength/1048576).toFixed(1);}
 function oversize(p){const d=[p.x,p.y,p.z].sort((a,b)=>a-b),b=[BED.x,BED.y,BED.z].sort((a,b)=>a-b);
@@ -646,7 +647,7 @@ let _r3d,_scene3,_cam3,_mesh3,_mat3;
 function initThumb(){
   if(_r3d||!window.THREE)return;
   _r3d=new THREE.WebGLRenderer({antialias:true,alpha:true,preserveDrawingBuffer:true});
-  _r3d.setSize(260,260);_r3d.setPixelRatio(1);
+  _r3d.setSize(260,260);_r3d.setPixelRatio(2);   // 2x backing store → crisper thumbnails in PDFs
   _scene3=new THREE.Scene();
   _cam3=new THREE.PerspectiveCamera(32,1,0.1,100000);
   const k=new THREE.DirectionalLight(0xffffff,0.95);k.position.set(2,3,2);
@@ -654,11 +655,13 @@ function initThumb(){
   _scene3.add(k,f,new THREE.AmbientLight(0xffffff,0.55));
   _mat3=new THREE.MeshPhongMaterial({color:0x33415c,shininess:18});
 }
-function renderThumb(pos,p){
+function renderThumb(pos,p,dark){
   if(!window.THREE)return null;
   try{
     initThumb();
-    if(p){applyFinish(_mat3,p);}else{_mat3.color.set(0x33415c);_mat3.shininess=18;if(_mat3.specular)_mat3.specular.set(0x111111);_mat3.needsUpdate=true;}
+    // dark = force a high-contrast dark render (used on travelers, so white/natural parts don't wash out)
+    if(dark){_mat3.color.set(0x1b2a4a);_mat3.shininess=8;if(_mat3.specular)_mat3.specular.set(0x0a0f18);_mat3.needsUpdate=true;}
+    else if(p){applyFinish(_mat3,p);}else{_mat3.color.set(0x33415c);_mat3.shininess=18;if(_mat3.specular)_mat3.specular.set(0x111111);_mat3.needsUpdate=true;}
     if(_mesh3){_scene3.remove(_mesh3);_mesh3.geometry.dispose();}
     const g=new THREE.BufferGeometry();
     g.setAttribute("position",new THREE.BufferAttribute(pos,3));
@@ -1046,9 +1049,10 @@ function buildTravelerPDF(orderNo,opts){
     doc.text(orderNo,M,y);
     if(opts.po){doc.setFontSize(11);doc.setTextColor(ORANGE[0],ORANGE[1],ORANGE[2]);doc.text("PO "+opts.po,W-M,y,{align:"right"});}
     y+=14;const imgW=132,imgH=132,ix=(W-imgW)/2;
-    const timg=(window.THREE&&p.geo)?(renderThumb(p.geo,p)||p.thumb):p.thumb;
+    doc.setFillColor(238,241,246);doc.roundedRect(ix,y,imgW,imgH,6,6,"F");   // light panel so the dark render pops
+    const timg=(window.THREE&&p.geo)?(renderThumb(p.geo,null,true)||p.thumb):p.thumb;   // force high-contrast dark render for the shop
     if(timg){try{doc.addImage(timg,"PNG",ix,y,imgW,imgH);}catch(e){}}
-    doc.setDrawColor(220,224,232);doc.setLineWidth(1);doc.roundedRect(ix,y,imgW,imgH,6,6);
+    doc.setDrawColor(198,205,216);doc.setLineWidth(1);doc.roundedRect(ix,y,imgW,imgH,6,6);
     y+=imgH+18;
     doc.setFont("helvetica","normal");doc.setFontSize(11);doc.setTextColor(NAVY[0],NAVY[1],NAVY[2]);
     doc.text("Part "+(idx+1)+" of "+parts.length,W/2,y,{align:"center"});
@@ -1072,9 +1076,7 @@ function buildTravelerPDF(orderNo,opts){
 }
 async function uploadTraveler(orderNo,opts){
   try{ const doc=buildTravelerPDF(orderNo,opts); if(!doc) return;
-    const buf=doc.output("arraybuffer");
-    await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(orderNo)+"&i=traveler&name="+encodeURIComponent("traveler-"+orderNo+".pdf"),
-      {method:"POST",headers:{"Content-Type":"application/octet-stream"},body:buf});
+    await putFile(orderNo,"traveler","traveler-"+orderNo+".pdf",doc.output("arraybuffer"));
   }catch(e){}
 }
 /* ---- Packing slip PDF (customer-facing, no prices) — auto-attached to the order ---- */
@@ -1122,9 +1124,7 @@ function buildPackingSlipPDF(orderNo,opts){
 }
 async function uploadPackingSlip(orderNo,opts){
   try{ const doc=buildPackingSlipPDF(orderNo,opts); if(!doc) return;
-    const buf=doc.output("arraybuffer");
-    await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(orderNo)+"&i=packslip&name="+encodeURIComponent("packing-slip-"+orderNo+".pdf"),
-      {method:"POST",headers:{"Content-Type":"application/octet-stream"},body:buf});
+    await putFile(orderNo,"packslip","packing-slip-"+orderNo+".pdf",doc.output("arraybuffer"));
   }catch(e){}
 }
 /* ---- Quote PDF (with prices) — auto-attached to the order ---- */
@@ -1183,16 +1183,32 @@ function buildQuotePDF(orderNo,opts){
 }
 async function uploadQuote(orderNo,opts){
   try{ const doc=buildQuotePDF(orderNo,opts); if(!doc) return;
-    const buf=doc.output("arraybuffer");
-    await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(orderNo)+"&i=quote&name="+encodeURIComponent("quote-"+orderNo+".pdf"),
-      {method:"POST",headers:{"Content-Type":"application/octet-stream"},body:buf});
+    await putFile(orderNo,"quote","quote-"+orderNo+".pdf",doc.output("arraybuffer"));
   }catch(e){}
 }
 let LOADED_QUOTE_ID=null;
-/* Retrying file upload (fixes occasional dropped STL). Returns true on success. */
+/* Retrying file upload (fixes occasional dropped STL). Returns true on success.
+   Files over one chunk are split into <3.5MB pieces (each under Netlify's function-body cap),
+   uploaded sequentially, then reassembled server-side via a finalize call. */
 async function putFile(orderNo,i,name,buf){
-  for(let a=0;a<3;a++){ try{ const r=await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(orderNo)+"&i="+encodeURIComponent(i)+"&name="+encodeURIComponent(name),{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:buf}); if(r.ok) return true; }catch(e){}
-    await new Promise(res=>setTimeout(res,400*(a+1))); }
+  const base="/.netlify/functions/upload-stl?order="+encodeURIComponent(orderNo)+"&i="+encodeURIComponent(i)+"&name="+encodeURIComponent(name);
+  const total=buf.byteLength;
+  if(total<=UPLOAD_CHUNK){
+    for(let a=0;a<3;a++){ try{ const r=await fetch(base,{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:buf}); if(r.ok) return true; }catch(e){}
+      await new Promise(res=>setTimeout(res,400*(a+1))); }
+    return false;
+  }
+  const n=Math.ceil(total/UPLOAD_CHUNK);
+  const uid=Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+  for(let c=0;c<n;c++){
+    const slice=buf.slice(c*UPLOAD_CHUNK, Math.min(total,(c+1)*UPLOAD_CHUNK));
+    let ok=false;
+    for(let a=0;a<3&&!ok;a++){ try{ const r=await fetch(base+"&uid="+uid+"&chunk="+c+"&chunks="+n,{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:slice}); ok=r.ok; }catch(e){}
+      if(!ok) await new Promise(res=>setTimeout(res,400*(a+1))); }
+    if(!ok) return false;
+  }
+  for(let a=0;a<3;a++){ try{ const r=await fetch(base+"&uid="+uid+"&chunks="+n+"&finalize=1",{method:"POST"}); if(r.ok) return true; }catch(e){}
+    await new Promise(res=>setTimeout(res,500*(a+1))); }
   return false;
 }
 /* Uploads each part's STL + drawing to the order prefix; returns any that failed/were too big. */
@@ -1365,8 +1381,8 @@ async function saveQuote(){
   const btn=document.getElementById("saveQuoteBtn"),orig=btn.textContent;btn.disabled=true;btn.textContent="Saving…";
   const id=LOADED_QUOTE_ID||("Q-"+Math.random().toString(36).slice(2,8).toUpperCase());  // reuse id when editing a loaded quote → same customer link updates
   for(let i=0;i<parts.length;i++){const p=parts[i];
-    if(p.fileBuf&&p.fileBuf.byteLength<=MAX_UPLOAD){try{await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(id)+"&i="+i+"&name="+encodeURIComponent(p.fileName||(p.name+".stl")),{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.fileBuf});}catch(e){}}
-    if(p.drawingBuf&&p.drawingBuf.byteLength<=MAX_UPLOAD){try{await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(id)+"&i=draw"+i+"&name="+encodeURIComponent("drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf"))),{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.drawingBuf});}catch(e){}}
+    if(p.fileBuf&&p.fileBuf.byteLength<=MAX_UPLOAD){try{await putFile(id,i,p.fileName||(p.name+".stl"),p.fileBuf);}catch(e){}}
+    if(p.drawingBuf&&p.drawingBuf.byteLength<=MAX_UPLOAD){try{await putFile(id,"draw"+i,"drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf")),p.drawingBuf);}catch(e){}}
   }
   try{
     const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -1407,8 +1423,8 @@ async function customerSaveQuote(){
   const btn=document.getElementById("custSaveBtn"),orig=btn.textContent;btn.disabled=true;btn.textContent="Saving…";
   const id="Q-"+Math.random().toString(36).slice(2,8).toUpperCase();
   for(let i=0;i<parts.length;i++){const p=parts[i];
-    if(p.fileBuf&&p.fileBuf.byteLength<=MAX_UPLOAD){try{await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(id)+"&i="+i+"&name="+encodeURIComponent(p.fileName||(p.name+".stl")),{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.fileBuf});}catch(e){}}
-    if(p.drawingBuf&&p.drawingBuf.byteLength<=MAX_UPLOAD){try{await fetch("/.netlify/functions/upload-stl?order="+encodeURIComponent(id)+"&i=draw"+i+"&name="+encodeURIComponent("drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf"))),{method:"POST",headers:{"Content-Type":"application/octet-stream"},body:p.drawingBuf});}catch(e){}}
+    if(p.fileBuf&&p.fileBuf.byteLength<=MAX_UPLOAD){try{await putFile(id,i,p.fileName||(p.name+".stl"),p.fileBuf);}catch(e){}}
+    if(p.drawingBuf&&p.drawingBuf.byteLength<=MAX_UPLOAD){try{await putFile(id,"draw"+i,"drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf")),p.drawingBuf);}catch(e){}}
   }
   try{
     const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},

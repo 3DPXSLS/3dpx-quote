@@ -23,6 +23,7 @@ export async function attachOrderFiles(token, orderNo, targets) {
     }
     for (const b of (listing.blobs || [])) {
       try {
+        if (b.key.includes("/.part-")) continue;   // orphaned chunk from an interrupted large-file upload — never attach
         const meta = await store.getMetadata(b.key).catch(() => null);
         const fname = (meta && meta.metadata && meta.metadata.name) || b.key.split("__").pop() || "file";
         if (fname === "manifest.json") { await store.delete(b.key).catch(() => {}); continue; }  // internal, never attach

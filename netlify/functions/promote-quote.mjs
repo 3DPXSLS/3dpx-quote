@@ -20,6 +20,7 @@ export default async (req) => {
     for (const b of (listing.blobs || [])) {
       const rest = b.key.slice((id + "/").length);      // e.g. "0__part.stl"
       if (!rest) continue;
+      if (rest.startsWith(".part-")) continue;          // skip orphaned chunk temp files from a large upload
       const bytes = await store.get(b.key, { type: "arrayBuffer" });
       if (!bytes) continue;
       const meta = await store.getMetadata(b.key).catch(() => null);
