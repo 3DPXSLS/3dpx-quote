@@ -48,3 +48,38 @@ export async function attachOrderFiles(token, orderNo, targets) {
     }
   } catch (e) { console.log("attach step failed:", e.message); }
 }
+
+// Attach a saved quote's files (STL/STEP + drawings + the quote PDF) to its row in the SLS Quotes
+// sheet. Unlike attachOrderFiles this NEVER deletes the blobs — promote-quote copies them onto the
+// order when the customer buys. De-dupes by filename so re-saving a quote doesn't pile up duplicates.
+export async function attachQuoteFiles(token, quoteId, sheetId, rowId) {
+  if (!token || !quoteId || !sheetId || !rowId) return;
+  try {
+    const store = getStore("orders");
+    const listing = await store.list({ prefix: quoteId + "/" });
+    // Existing attachment names on the row → skip anything already there.
+    const existing = new Set();
+    try {
+      const ar = await fetch("https://api.smartsheet.com/2.0/sheets/" + sheetId + "/rows/" + rowId + "?include=attachments",
+        { headers: { Authorization: "Bearer " + token } });
+      if (ar.ok) { const j = await ar.json(); (j.attachments || []).forEach(a => a && a.name && existing.add(a.name)); }
+    } catch (e) {}
+    for (const b of (listing.blobs || [])) {
+      try {
+        if (b.key.includes("/.part-")) continue;                 // orphaned upload chunk — skip
+        const meta = await store.getMetadata(b.key).catch(() => null);
+        const fname = (meta && meta.metadata && meta.metadata.name) || b.key.split("__").pop() || "file";
+        if (fname === "manifest.json") continue;                 // internal, never attach
+        if (existing.has(fname)) continue;                       // already on the row — don't duplicate on re-save
+        const bytes = await store.get(b.key, { type: "arrayBuffer" });
+        if (!bytes) continue;
+        const fd = new FormData();
+        fd.append("file", new Blob([bytes], { type: "application/octet-stream" }), fname);
+        const r = await fetch("https://api.smartsheet.com/2.0/sheets/" + sheetId + "/rows/" + rowId + "/attachments",
+          { method: "POST", headers: { Authorization: "Bearer " + token }, body: fd });
+        if (!r.ok) console.log("quote attach failed:", r.status, await r.text());
+        // NOTE: intentionally NOT deleting the blob — the order flow (promote-quote) still needs it.
+      } catch (e2) { console.log("quote attach item failed:", e2.message); }
+    }
+  } catch (e) { console.log("attachQuoteFiles failed:", e.message); }
+}

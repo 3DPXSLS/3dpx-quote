@@ -1384,6 +1384,7 @@ async function saveQuote(){
     if(p.fileBuf&&p.fileBuf.byteLength<=MAX_UPLOAD){try{await putFile(id,i,p.fileName||(p.name+".stl"),p.fileBuf);}catch(e){}}
     if(p.drawingBuf&&p.drawingBuf.byteLength<=MAX_UPLOAD){try{await putFile(id,"draw"+i,"drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf")),p.drawingBuf);}catch(e){}}
   }
+  try{ const qd=buildQuotePDF(id,{}); if(qd) await putFile(id,"quote","quote-"+id+".pdf",qd.output("arraybuffer")); }catch(e){}   // attach the quote PDF to the quote's Smartsheet row too
   try{
     const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({token:INTERNAL_TOKEN,id,
@@ -1426,6 +1427,7 @@ async function customerSaveQuote(){
     if(p.fileBuf&&p.fileBuf.byteLength<=MAX_UPLOAD){try{await putFile(id,i,p.fileName||(p.name+".stl"),p.fileBuf);}catch(e){}}
     if(p.drawingBuf&&p.drawingBuf.byteLength<=MAX_UPLOAD){try{await putFile(id,"draw"+i,"drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf")),p.drawingBuf);}catch(e){}}
   }
+  try{ const qd=buildQuotePDF(id,{}); if(qd) await putFile(id,"quote","quote-"+id+".pdf",qd.output("arraybuffer")); }catch(e){}   // attach the quote PDF to the quote's Smartsheet row too
   try{
     const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({id,

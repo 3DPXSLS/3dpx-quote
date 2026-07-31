@@ -99,6 +99,14 @@ export default async (req) => {
       record.quoteRowId = rowId;
       try { await store.setJSON("Q-QUOTES/" + id + ".json", record); } catch (e) {}
     }
+    // Attach this quote's uploaded files + quote PDF to its SLS Quotes row (best-effort; never deletes blobs).
+    const sm = process.env.SMARTSHEET_TOKEN;
+    if (sm && record.quoteRowId) {
+      try {
+        const { attachQuoteFiles } = await import("./_attach.mjs");
+        await attachQuoteFiles(sm, id, process.env.QUOTES_SHEET_ID || "8909229715836804", record.quoteRowId);
+      } catch (e) { console.log("save-quote attach error:", e.message); }
+    }
   } catch (e) { console.log("save-quote log error:", e.message); }
 
   // Email the customer their quote (best-effort; only on public/customer saves with an email).
