@@ -511,10 +511,9 @@ function orderTotals(){
     if(valAlt>=qtyDisc){ afterDisc=discGross-valAlt; qtyDiscShown=0; valDiscShown=valAlt; valPctShown=vPct; }
     else { afterDisc=postQty; } }
   const addlPct=Math.max(0,Math.min(100,ADDL_DISC||0)); let addlApplied=hasNormal?afterDisc*addlPct/100:0; afterDisc=afterDisc-addlApplied;
-  // Customer promo code: % off LIST for discountable lines; applied only if it beats the automatic discounts (never stacks on top).
-  const promoPct=Math.max(0,Math.min(100,PROMO_PCT||0)); let promoApplied=false;
-  if(promoPct>0 && hasNormal){ const promoNet=discGross*(1-promoPct/100);
-    if(promoNet<afterDisc-0.005){ promoApplied=true; afterDisc=promoNet; qtyDiscShown=0; valDiscShown=0; valPctShown=0; addlApplied=0; } }
+  // Customer promo code: STACKS on top of the automatic + additional discounts (% off the already-discounted subtotal).
+  const promoPct=Math.max(0,Math.min(100,PROMO_PCT||0)); let promoApplied=false, promoDisc=0;
+  if(promoPct>0 && hasNormal){ promoApplied=true; promoDisc=afterDisc*promoPct/100; afterDisc=afterDisc-promoDisc; }
   afterDisc=afterDisc+fixedTot;                 // overridden lines added at their final price
   const gross=discGross+fixedTot;               // display subtotal (list) incl. overridden lines
   const topUp=parts.length?Math.max(0,RULES.orderMin-afterDisc):0;
@@ -528,7 +527,7 @@ function orderTotals(){
   const eng=engHours*RULES.engRate;                 // engineering services: flat labor, not discounted
   const totalVol=parts.reduce((s,p)=>s+(p.vol||0)*(p.qty||0),0);
   const perCc=totalVol>0?afterDisc/totalVol:0;
-  return {gross, qtyDisc:qtyDiscShown, valPct:valPctShown, valDisc:valDiscShown, addlDisc:addlApplied, addlPct, promoApplied, promoPct:promoApplied?promoPct:0, promoCode:promoApplied?PROMO_CODE:"", afterDisc, topUp,
+  return {gross, qtyDisc:qtyDiscShown, valPct:valPctShown, valDisc:valDiscShown, addlDisc:addlApplied, addlPct, promoApplied, promoPct:promoApplied?promoPct:0, promoDisc, promoCode:promoApplied?PROMO_CODE:"", afterDisc, topUp,
           shipping, billableLb, zone, matCert, engHours, eng, speed, pickup, account, perCc, totalVol, total:afterDisc+topUp+shipping+matCert+eng, saved:gross-afterDisc};
 }
 function regionLabel(){const r=(document.getElementById("sRegion")||{}).value;return r==="intl"?"International":r==="camx"?"Canada / Mexico":"United States";}
@@ -859,12 +858,11 @@ function render(){
   if(t.eng>0) lines+=`<div class="oline"><span>Engineering services (${t.engHours} hr @ ${money(RULES.engRate)}/hr)</span><b>${money(t.eng)}</b></div>`;
   if(parts.length) lines+=`<div class="oline"><span>Parts</span><b>${parts.length} part${parts.length===1?"":"s"} · ${pcs} pc${pcs===1?"":"s"}</b></div>`;
   lines+=`<div class="oline"><span>Subtotal</span><b>${money(t.gross)}</b></div>`;
-  if(t.promoApplied){
-    lines+=`<div class="oline save"><span>Promo ${esc(t.promoCode)} (${t.promoPct}% off list)</span><b>−${money(t.saved)}</b></div>`;
-  } else {
-    const stdDisc=t.saved-(t.addlDisc||0);
+  {
+    const stdDisc=t.saved-(t.addlDisc||0)-(t.promoDisc||0);
     if(stdDisc>0.005) lines+=`<div class="oline save"><span>Discounts (save ${Math.round(stdDisc/t.gross*100)}%)</span><b>−${money(stdDisc)}</b></div>`;
     if(t.addlDisc>0.005) lines+=`<div class="oline save"><span>Additional discount (${t.addlPct}%)</span><b>−${money(t.addlDisc)}</b></div>`;
+    if(t.promoApplied&&t.promoDisc>0.005) lines+=`<div class="oline save"><span>Promo ${esc(t.promoCode)} (${t.promoPct}% off)</span><b>−${money(t.promoDisc)}</b></div>`;
   }
   if(t.topUp>0) lines+=`<div class="oline"><span>Order minimum top-up</span><b>${money(t.topUp)}</b></div>`;
   if(t.pickup) lines+=`<div class="oline"><span>Pickup at 3DPX (Chicago, IL)</span><b style="color:#1e9e6a">Free</b></div>`;
@@ -956,7 +954,7 @@ function buildQuoteDoc(qn){
       <div style="display:flex;justify-content:space-between;padding:3px 0;color:#42506b"><span>Subtotal</span><span>${money(t.gross)}</span></div>
       ${t.qtyDisc>0.005?`<div style="display:flex;justify-content:space-between;padding:3px 0;color:#1e9e6a"><span>Quantity discount</span><span>−${money(t.qtyDisc)}</span></div>`:""}
       ${t.valDisc>0.005?`<div style="display:flex;justify-content:space-between;padding:3px 0;color:#1e9e6a"><span>Order-value discount (${t.valPct}%)</span><span>−${money(t.valDisc)}</span></div>`:""}
-      ${t.promoApplied?`<div style="display:flex;justify-content:space-between;padding:3px 0;color:#1e9e6a"><span>Promo ${esc(t.promoCode)} (${t.promoPct}% off list)</span><span>−${money(t.saved)}</span></div>`:""}
+      ${(t.promoApplied&&t.promoDisc>0.005)?`<div style="display:flex;justify-content:space-between;padding:3px 0;color:#1e9e6a"><span>Promo ${esc(t.promoCode)} (${t.promoPct}% off)</span><span>−${money(t.promoDisc)}</span></div>`:""}
       ${t.saved>0.005?`<div style="display:flex;justify-content:space-between;padding:5px 0 3px;color:#1b2a4a;font-weight:700;border-top:1px solid #eef2f8;margin-top:2px"><span>Subtotal after discount</span><span>${money(t.gross-t.saved)}</span></div>`:""}
       ${t.topUp>0?`<div style="display:flex;justify-content:space-between;padding:3px 0"><span>Order minimum top-up</span><span>${money(t.topUp)}</span></div>`:""}
       <div style="display:flex;justify-content:space-between;padding:3px 0;color:#42506b"><span>${shipRowLabel}</span><span>${shipRowVal}</span></div>
@@ -1159,7 +1157,9 @@ function buildQuotePDF(orderNo,opts){
     columnStyles:{0:{cellWidth:22,halign:"center"},1:{cellWidth:118},2:{cellWidth:CW-356,halign:"left",fontSize:8},3:{cellWidth:34,halign:"center"},4:{cellWidth:58,halign:"right"},5:{cellWidth:60,halign:"right"},6:{cellWidth:64,halign:"right",textColor:[30,158,106],fontStyle:"bold"}},
     margin:{left:M,right:M}});
   const rowsT=[["Subtotal (list)",money(t.gross)]];
-  if(t.saved>0.005)rowsT.push([t.promoApplied?("Promo "+t.promoCode+" ("+t.promoPct+"% off)"):("Discount"+(t.addlPct>0?" (incl "+t.addlPct+"% add'l)":"")),"-"+money(t.saved)]);
+  {const stdSave=t.saved-(t.promoDisc||0);
+   if(stdSave>0.005)rowsT.push(["Discount"+(t.addlPct>0?(" (incl "+t.addlPct+"% add'l)"):""),"-"+money(stdSave)]);
+   if(t.promoApplied&&t.promoDisc>0.005)rowsT.push(["Promo "+t.promoCode+" ("+t.promoPct+"% off)","-"+money(t.promoDisc)]);}
   if(t.saved>0.005)rowsT.push(["Subtotal after discount",money(t.gross-t.saved)]);
   if(t.topUp>0)rowsT.push(["Order minimum top-up",money(t.topUp)]);
   const shipVal=t.pickup?"Free (pickup)":(t.account?"Billed to your account":(t.shipping>0?money(t.shipping):"quoted separately"));

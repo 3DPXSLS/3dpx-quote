@@ -82,8 +82,8 @@ function orderTotal(parts, region, matCert, speed, zip, addl, promoPct, eng) {
   const vp = vd(discGross);
   let after = (postQty - postQty*vp/100);
   if (hasNormal) after = after * (1 - Math.max(0, Math.min(100, addl||0))/100);
-  const pp = Math.max(0, Math.min(100, promoPct||0));  // promo: % off list, applied only if it beats the auto discounts
-  if (pp>0 && hasNormal) { const promoNet = discGross*(1-pp/100); if (promoNet < after) after = promoNet; }
+  const pp = Math.max(0, Math.min(100, promoPct||0));  // promo: STACKS on top (% off the already-discounted subtotal)
+  if (pp>0 && hasNormal) after = after * (1 - pp/100);
   after += fixedTot;
   const topUp = Math.max(0, RULES.orderMin - after);
   const sp = SHIP_SPEEDS[speed] ? speed : "ground";
