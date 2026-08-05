@@ -494,7 +494,7 @@ let ENG_HOURS=0;  // rep-set engineering-services hours @ $125/hr, internal only
 // A quote is valid with parts OR with engineering-services hours alone (rep can bill engineering with no print).
 function quotable(){ return parts.length>0 || (ENG_HOURS>0); }
 let REP_DUE="";   // rep-set custom due date (YYYY-MM-DD), internal only; blank = auto from lead time
-const PROMO_CODES={"3DPXSAVE10":10, "3DPXSAVE5":5};  // customer promo codes → % off LIST price. Editable. Customer gets the BETTER of the promo or the automatic discounts, not both.
+const PROMO_CODES={"3DPXSAVE10":10, "3DPXSAVE5":5};  // customer promo codes → % off. Editable. STACKS on top of the automatic + additional discounts.
 let PROMO_CODE="", PROMO_PCT=0;          // resolved from the code the customer typed (0 = none/invalid)
 function resolvePromo(code){const k=String(code||"").trim().toUpperCase();return {code:k, pct:PROMO_CODES[k]||0};}
 // Per-line display factor: multiplies the qty-discounted unit/line so the shown prices sum to the order total in every mode (auto discounts, rep additional, or promo).
@@ -772,7 +772,7 @@ function render(){
           <div class="lineno">${i+1}</div>
           ${window.THREE&&p.geo?`<div class="viewwrap"><div class="viewslot" data-view="${p.id}" title="Drag to rotate"></div><div class="viewhint">↻ drag to rotate</div></div>`:(p.thumb?`<img class="thumb" src="${p.thumb}" alt="3D preview of ${esc(p.name)}">`:"")}
           <div style="min-width:0"><div class="nm">${esc(p.name)}</div>
-          <div class="dims">${isMan?`STEP file · qty <b>${p.qty}</b> · <span class="save">manual quote</span>${(p.override>0)?` · <span class="save">custom $</span>`:""}`:`${p.x}×${p.y}×${p.z} mm · ${p.vol} cm³ · qty <b>${p.qty}</b>${c.fixed?` · <span class="save">custom $</span>`:(_t0.promoApplied?` · <span class="save">${_t0.promoPct}% promo</span>`:`${c.qp>0?` · <span class="save">${c.qp}% qty</span>`:""}${_valPct>0?` · <span class="save">${_valPct}% order</span>`:""}${_addlPct>0?` · <span class="save">${_addlPct}% add&#39;l</span>`:""}`)}`}</div>
+          <div class="dims">${isMan?`STEP file · qty <b>${p.qty}</b> · <span class="save">manual quote</span>${(p.override>0)?` · <span class="save">custom $</span>`:""}`:`${p.x}×${p.y}×${p.z} mm · ${p.vol} cm³ · qty <b>${p.qty}</b>${c.fixed?` · <span class="save">custom $</span>`:`${c.qp>0?` · <span class="save">${c.qp}% qty</span>`:""}${_valPct>0?` · <span class="save">${_valPct}% order</span>`:""}${_addlPct>0?` · <span class="save">${_addlPct}% add&#39;l</span>`:""}${_t0.promoApplied?` · <span class="save">${_t0.promoPct}% promo</span>`:""}`}`}</div>
           ${isMan?`<div class="dims" style="opacity:.7;margin-top:1px">Awaiting manual measurement — ${oversized(p)?"file too large to upload, please email it":"STEP attached for review"}</div>`:`<div class="dims" style="opacity:.7;margin-top:1px">${(p.x/25.4).toFixed(2)}×${(p.y/25.4).toFixed(2)}×${(p.z/25.4).toFixed(2)} in · ${(p.vol*0.0610237).toFixed(2)} in³</div>`}</div>
         </div>
         <div style="display:flex;align-items:center;gap:12px">
@@ -1001,7 +1001,7 @@ document.getElementById("sAcct").addEventListener("input",render);
 document.getElementById("matCert").addEventListener("change",render);
 function applyPromoInput(){const el=document.getElementById("promoCode");const raw=(el?el.value:"")||"";const r=resolvePromo(raw);PROMO_CODE=r.pct>0?r.code:"";PROMO_PCT=r.pct;
   const msg=document.getElementById("promoMsg");
-  if(msg){ if(!raw.trim()){msg.textContent="";} else if(r.pct>0){const t=orderTotals();msg.innerHTML=t.promoApplied?`<span style="color:#1e7d52">✓ ${r.pct}% off applied</span>`:`<span style="color:#8a6d1e">Code valid, but your current discounts already save more — kept the better price.</span>`;} else {msg.innerHTML=`<span style="color:#c0392b">Code not recognized</span>`;} }
+  if(msg){ if(!raw.trim()){msg.textContent="";} else if(r.pct>0){msg.innerHTML=`<span style="color:#1e7d52">✓ ${r.pct}% off applied — stacks with your other discounts</span>`;} else {msg.innerHTML=`<span style="color:#c0392b">Code not recognized</span>`;} }
   render();}
 {const pc=document.getElementById("promoCode");if(pc)pc.addEventListener("input",applyPromoInput);}
 function toggleShip(){
