@@ -1290,6 +1290,19 @@ async function startPayment(){
   btn.textContent=orig; btn.disabled=false;
 }
 /* ---- Order by PO (invoice, no card) ---- */
+/* On a successful order: show a confirmation right under the buttons (rep tiles or customer buttons)
+   and gray out every order-placing control so it's clear the order went through and can't double-submit. */
+function orderConfirmed(msg){
+  const host = INTERNAL ? document.getElementById("repActions") : document.querySelector(".summary .btns");
+  let box=document.getElementById("dpxOrderMsg");
+  if(!box){ box=document.createElement("div"); box.id="dpxOrderMsg";
+    box.style.cssText="margin-top:14px;background:#e8f7ef;border:1px solid #a9e0c3;color:#1e7d52;border-radius:10px;padding:14px 16px;font-size:14px;line-height:1.5"; }
+  box.innerHTML=msg;
+  if(host){ if(INTERNAL) host.appendChild(box); else host.parentNode.insertBefore(box, host.nextSibling); }
+  ["payBtn","poBtn","approvedBtn"].forEach(id=>{const b=document.getElementById(id); if(b){b.disabled=true;b.style.opacity="0.5";b.style.pointerEvents="none";}});
+  document.querySelectorAll('#repActions .ract[data-do="payBtn"], #repActions .ract[data-do="poBtn"], #repActions .ract[data-do="approvedBtn"]').forEach(t=>{t.style.opacity="0.5";t.style.pointerEvents="none";t.disabled=true;});
+  try{ box.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){}
+}
 async function submitPO(approved){
   if(!quotable()) return;
   if(!validEmail()) return;
@@ -1325,12 +1338,13 @@ async function submitPO(approved){
         matCert:document.getElementById("matCert").checked,quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,source:INTERNAL?"internal":"web",dueDate:REP_DUE||""})});
     const data=await r.json().catch(()=>({}));
     if(data.ok){
+      const msg=approved
+        ? "✓ <b>Approved order created.</b> Order "+esc(orderNo)+(po?(" (PO "+esc(po)+")"):"")+" is in the production queue — no card charged, invoice to follow."
+        : "✓ <b>PO received — thank you!</b> Your order "+esc(orderNo)+" (PO "+esc(po)+") is in our queue for review. We'll confirm and email an invoice to "+esc(v("cEmail"))+". No card was charged.";
       const b=document.getElementById("payBanner");
       b.style.display="block";b.style.background="#e8f7ef";b.style.border="1px solid #a9e0c3";b.style.color="#1e7d52";
-      b.innerHTML=approved
-        ? "✓ <b>Approved order created.</b> Order "+esc(orderNo)+(po?(" (PO "+esc(po)+")"):"")+" is in the production queue — no card charged, invoice to follow."
-        : "✓ <b>PO received — thank you!</b> Your order (PO "+esc(po)+") is in our queue for review. We'll confirm and email an invoice to "+esc(v("cEmail"))+". No card was charged.";
-      try{window.scrollTo({top:0,behavior:"smooth"});}catch(e){}
+      b.innerHTML=msg;
+      orderConfirmed(msg);                       // inline confirmation under the buttons + gray out order controls
       btn.textContent=approved?"Order created ✓":"PO submitted ✓"; return;
     }
     alert(data.error||"Couldn't submit the order. Please download the quote and email it to sales@3dpx.com.");

@@ -34,7 +34,8 @@ export async function logOrder(o) {
   const sheetId = process.env.ORDERS_LOG_SHEET_ID || LOG_SHEET;
   const cell = (id, v) => ({ columnId: id, value: v == null ? "" : v, strict: false });
   const cells = [
-    cell(C.order, o.orderNo),
+    // For PO orders, lead the Order # with the PO (keeps WEB-… for internal cross-reference): "PO 2213 · WEB-…"
+    cell(C.order, o.po ? ("PO " + o.po + " · " + o.orderNo) : o.orderNo),
     cell(C.type, o.type),
     cell(C.source, o.source),
     cell(C.company, o.company),
