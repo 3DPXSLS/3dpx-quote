@@ -498,7 +498,7 @@ const PROMO_CODES={"3DPXSAVE10":10, "3DPXSAVE5":5};  // customer promo codes →
 let PROMO_CODE="", PROMO_PCT=0;          // resolved from the code the customer typed (0 = none/invalid)
 function resolvePromo(code){const k=String(code||"").trim().toUpperCase();return {code:k, pct:PROMO_CODES[k]||0};}
 // Per-line display factor: multiplies the qty-discounted unit/line so the shown prices sum to the order total in every mode (auto discounts, rep additional, or promo).
-function lineFactor(c,t){ if(c.fixed) return 1; if(t&&t.promoApplied) return c.net>0?(c.list*(1-(t.promoPct||0)/100))/c.net:1; return (1-((t&&t.valPct)||0)/100)*(1-((t&&t.addlPct)||0)/100); }
+function lineFactor(c,t){ if(c.fixed) return 1; return (1-((t&&t.valPct)||0)/100)*(1-((t&&t.addlPct)||0)/100)*(1-((t&&t.promoPct)||0)/100); }
 function orderTotals(){
   // discGross/postQty = discountable (normal) lines only; fixedTot = rep-overridden lines (no discounts)
   let discGross=0, postQty=0, fixedTot=0, hasNormal=false;
