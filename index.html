@@ -976,11 +976,23 @@ function v(id){return document.getElementById(id).value;}
 /* ---- actions ---- */
 function validEmail(){const e=v("cEmail");if(!e||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)){alert("Please enter a valid email so we can send your quote.");return false;}return true;}
 
-document.getElementById("dlBtn").onclick=()=>{
+document.getElementById("dlBtn").onclick=async ()=>{
   if(!validEmail())return;
   const qn=quoteNum();
-  document.getElementById("printArea").innerHTML=buildQuoteDoc(qn);
+  const pa=document.getElementById("printArea");
+  pa.innerHTML=buildQuoteDoc(qn);
   document.title="3DPX Quote "+qn;
+  // Wait for every thumbnail to finish decoding before printing — otherwise on big quotes
+  // (many parts) some images print blank because print() fires before they render.
+  const imgs=[...pa.querySelectorAll("img")];
+  try{
+    await Promise.all(imgs.map(im=>{
+      if(im.complete && im.naturalWidth) return Promise.resolve();
+      if(im.decode) return im.decode().catch(()=>{});
+      return new Promise(res=>{ im.onload=im.onerror=res; });
+    }));
+  }catch(e){}
+  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));  // let layout settle
   window.print();
 };
 /* Email-quote button removed — 3DPX does not email quotes (use Download PDF / Save & send). */
