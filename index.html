@@ -982,17 +982,16 @@ document.getElementById("dlBtn").onclick=async ()=>{
   const pa=document.getElementById("printArea");
   pa.innerHTML=buildQuoteDoc(qn);
   document.title="3DPX Quote "+qn;
-  // Wait for every thumbnail to finish decoding before printing — otherwise on big quotes
-  // (many parts) some images print blank because print() fires before they render.
+  // Render the quote OFF-SCREEN but visible (not display:none) so every thumbnail actually loads
+  // and decodes; on big quotes, printing a display:none area drops images that haven't decoded yet.
+  const prev=pa.getAttribute("style")||"";
+  pa.style.cssText="display:block;position:fixed;left:-100000px;top:0;width:780px;background:#fff;z-index:-1";
   const imgs=[...pa.querySelectorAll("img")];
-  try{
-    await Promise.all(imgs.map(im=>{
-      if(im.complete && im.naturalWidth) return Promise.resolve();
-      if(im.decode) return im.decode().catch(()=>{});
-      return new Promise(res=>{ im.onload=im.onerror=res; });
-    }));
-  }catch(e){}
-  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));  // let layout settle
+  await Promise.all(imgs.map(im=> (im.complete&&im.naturalWidth>0) ? Promise.resolve()
+    : new Promise(res=>{ im.addEventListener("load",res,{once:true}); im.addEventListener("error",res,{once:true}); setTimeout(res,6000); })));
+  try{ await Promise.all(imgs.map(im=> im.decode?im.decode().catch(()=>{}):Promise.resolve())); }catch(e){}
+  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  pa.setAttribute("style",prev);   // restore (screen: hidden; @media print shows it) — images stay decoded
   window.print();
 };
 /* Email-quote button removed — 3DPX does not email quotes (use Download PDF / Save & send). */
