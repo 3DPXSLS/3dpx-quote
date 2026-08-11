@@ -86,14 +86,16 @@ function orderTotal(parts, region, matCert, speed, zip, addl, promoPct, eng) {
   if (pp>0 && hasNormal) after = after * (1 - pp/100);
   after += fixedTot;
   const topUp = Math.max(0, RULES.orderMin - after);
-  const sp = SHIP_SPEEDS[speed] ? speed : "ground";
-  let shipping = 0;
-  if (!(sp==="pickup" || SHIP_SPEEDS[sp].free)) {
-    const rm = RULES.shipRegionMult[region] || 1, s = SHIP_SPEEDS[sp];
-    shipping = Math.round(Math.max(s.min, s.base + s.perLb*shipWeightLb(parts))*rm*zoneMult(zip, region)*100)/100;
-  }
+  const shipping = shipEstimate(parts, region, speed, zip);
   const cert = matCert ? RULES.matCertFee : 0;
   return after + topUp + shipping + cert + Math.max(0, +eng || 0);
+}
+// Estimated shipping charge (billable-weight model). 0 for pickup / free (carrier-account) methods.
+function shipEstimate(parts, region, speed, zip) {
+  const sp = SHIP_SPEEDS[speed] ? speed : "ground";
+  if (sp==="pickup" || SHIP_SPEEDS[sp].free) return 0;
+  const rm = RULES.shipRegionMult[region] || 1, s = SHIP_SPEEDS[sp];
+  return Math.round(Math.max(s.min, s.base + s.perLb*shipWeightLb(parts))*rm*zoneMult(zip, region)*100)/100;
 }
 
 function leadDaysCalc(parts) {
@@ -189,6 +191,7 @@ export default async (req) => {
   }
   f.append("metadata[material_cert]", body.matCert ? "yes" : "no");
   f.append("metadata[eng_hours]", String(engHours));
+  f.append("metadata[est_ship]", String(shipEstimate(parts, body.region, speed, body.zip)));  // logged to Est. Shipping by the webhook
   f.append("metadata[total_parts]", String(totalParts));
   f.append("metadata[total_vol]", String(totalVol));
   f.append("metadata[lead_days]", String(leadDaysCalc(parts)));

@@ -114,6 +114,7 @@ export default async (req) => {
     phone: m.customer_phone, amount: price, tax: taxAmt, pieces: m.total_parts, volume: m.total_vol,
     colors: m.color, delivery: m.ship_method, payment: "Paid via Stripe", po: "",
     quoteId: m.quote_id, shipTo: m.shipping_address, notes: m.notes,
+    estShip: (m.est_ship != null && m.est_ship !== "") ? +m.est_ship : "",
   });
 
   // Attach uploaded file(s) to the SLS Jobs row AND the Web Orders Log row (best-effort).

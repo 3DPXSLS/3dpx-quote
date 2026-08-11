@@ -26,6 +26,7 @@ const C = {
   logged:  6187222571454340,
   invoiceDue: 5758808207167364,
   invStatus: 6660279534653316,
+  estShip:  6207804560150404,   // shipping estimate the tool included in the order (0 for pickup/account)
 };
 
 export async function logOrder(o) {
@@ -55,6 +56,7 @@ export async function logOrder(o) {
     cell(C.shipTo, o.shipTo),
     cell(C.notes, o.notes),
     cell(C.invoiceDue, o.invoiceDue),
+    cell(C.estShip, (o.estShip != null && o.estShip !== "") ? Number(o.estShip) : ""),
     cell(C.invStatus, /po|approved/i.test(o.type || "") ? "Not Invoiced" : "Paid"),  // card orders paid via Stripe; PO/approved await invoicing
     cell(C.logged, new Date().toISOString().slice(0, 10)),
   ].filter(c => c.value !== "" && c.value != null);

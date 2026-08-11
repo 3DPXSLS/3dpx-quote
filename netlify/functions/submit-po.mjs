@@ -106,14 +106,16 @@ function orderTotal(parts, region, matCert, speed, zip, addl, promoPct, eng) {
   if (pp>0 && hasNormal) after = after * (1 - pp/100);
   after += fixedTot;
   const topUp = Math.max(0, RULES.orderMin - after);
-  const sp = SHIP_SPEEDS[speed] ? speed : "ground";
-  let shipping = 0;
-  if (!(sp==="pickup" || SHIP_SPEEDS[sp].free)) {
-    const rm = RULES.shipRegionMult[region] || 1, s = SHIP_SPEEDS[sp];
-    shipping = Math.round(Math.max(s.min, s.base + s.perLb*shipWeightLb(parts))*rm*zoneMult(zip, region)*100)/100;
-  }
+  const shipping = shipEstimate(parts, region, speed, zip);
   const cert = matCert ? RULES.matCertFee : 0;
   return Math.round((after + topUp + shipping + cert + Math.max(0, +eng || 0))*100)/100;
+}
+// Estimated shipping charge (billable-weight model). 0 for pickup / free (carrier-account) methods.
+function shipEstimate(parts, region, speed, zip) {
+  const sp = SHIP_SPEEDS[speed] ? speed : "ground";
+  if (sp==="pickup" || SHIP_SPEEDS[sp].free) return 0;
+  const rm = RULES.shipRegionMult[region] || 1, s = SHIP_SPEEDS[sp];
+  return Math.round(Math.max(s.min, s.base + s.perLb*shipWeightLb(parts))*rm*zoneMult(zip, region)*100)/100;
 }
 function leadDaysCalc(parts) {
   let tv = 0; for (const p of parts) tv += (p.vol||0)*Math.max(1, parseInt(p.qty)||1);
@@ -215,6 +217,7 @@ export default async (req) => {
     amount: price, pieces: totalParts, volume: totalVol, colors: colorVals.join(", "),
     delivery: shipMethod, payment: payLabel, po, quoteId: body.quoteId, shipTo: body.shipAddress, notes,
     invoiceDue: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),  // Net 30 (PO + Approved)
+    estShip: shipEstimate(parts, body.region, speed, body.zip),
   });
 
   // Attach uploaded STL(s) + PO doc to the SLS Jobs row AND the Web Orders Log row (best-effort).
