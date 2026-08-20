@@ -1665,10 +1665,25 @@ if(INTERNAL){
 }
 (function(){const q=_URLP.get("quote");if(q&&/^Q-[A-Za-z0-9]{4,12}$/.test(q))loadQuote(q);})();
 
-/* ---- auto-resize: tell the parent page our height when embedded in an iframe ---- */
-function postHeight(){try{if(window.parent!==window)window.parent.postMessage({type:"3dpxQuoteHeight",height:document.body.scrollHeight},"*");}catch(e){}}
+/* ---- auto-resize: tell the parent page our height when embedded in an iframe ----
+   Debounced to one report per frame + a hysteresis threshold so subpixel/scrollbar
+   jitter can't set up a resize feedback loop (the "violent shake"). Real changes
+   (adding a part, opening a section) move by far more than the threshold. */
+let _lastH=0,_hPending=false;
+function _measureH(){return Math.ceil(Math.max(document.body.scrollHeight,document.documentElement.scrollHeight));}
+function postHeight(){
+  if(window.parent===window||_hPending)return;
+  _hPending=true;
+  requestAnimationFrame(()=>{
+    _hPending=false;
+    const h=_measureH();
+    if(Math.abs(h-_lastH)<=4)return;   // ignore tiny jitter
+    _lastH=h;
+    try{window.parent.postMessage({type:"3dpxQuoteHeight",height:h},"*");}catch(e){}
+  });
+}
 if(window.ResizeObserver){new ResizeObserver(postHeight).observe(document.body);}
-window.addEventListener("load",postHeight);
+window.addEventListener("load",()=>{_lastH=0;postHeight();});
 </script>
 </body>
 </html>
