@@ -717,10 +717,75 @@ function createViewer(part){
 }
 function disposeViewer(id){const v=viewers[id];if(!v)return;try{v.renderer.dispose();if(v.renderer.forceContextLoss)v.renderer.forceContextLoss();}catch(e){}delete viewers[id];}
 
+/* ---- click-to-enlarge lightbox (big interactive 3D if geometry exists, else enlarged thumbnail) ---- */
+function _lbEsc(e){if(e.key==="Escape")closePartView();}
+function closePartView(){const ov=document.getElementById("partLightbox");if(!ov)return;disposeViewer("__lb");document.removeEventListener("keydown",_lbEsc);ov.remove();}
+function openPartView(id){
+  const p=parts.find(x=>x.id==id);if(!p)return;
+  closePartView();
+  const ov=document.createElement("div");ov.id="partLightbox";
+  ov.style.cssText="position:fixed;inset:0;background:rgba(6,12,24,.82);z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:20px";
+  const box=document.createElement("div");
+  box.style.cssText="position:relative;background:#0f1b30;border-radius:14px;padding:16px 16px 18px;max-width:94vw;max-height:94vh;box-shadow:0 20px 60px rgba(0,0,0,.6);display:flex;flex-direction:column;align-items:center;gap:8px";
+  const close=document.createElement("button");close.textContent="×";close.title="Close";
+  close.style.cssText="position:absolute;top:8px;right:10px;width:34px;height:34px;border:none;border-radius:8px;background:rgba(255,255,255,.12);color:#fff;font-size:22px;line-height:1;cursor:pointer";
+  close.onclick=closePartView;
+  const title=document.createElement("div");
+  title.style.cssText="color:#e8eefc;font-size:15px;font-weight:600;max-width:600px;text-align:center;word-break:break-word;padding:0 34px";
+  title.textContent=p.name;
+  const sub=document.createElement("div");
+  sub.style.cssText="color:#9fb0cc;font-size:12.5px";
+  sub.textContent=p.manual?"STEP file · manual quote":(p.x+"×"+p.y+"×"+p.z+" mm · "+p.vol+" cm³");
+  const stage=document.createElement("div");
+  const S=Math.max(240,Math.min(560,Math.floor(Math.min(window.innerWidth,window.innerHeight)*0.72)));
+  stage.style.cssText="width:"+S+"px;height:"+S+"px;max-width:88vw;display:flex;align-items:center;justify-content:center;margin-top:4px";
+  box.appendChild(close);box.appendChild(title);box.appendChild(sub);box.appendChild(stage);ov.appendChild(box);
+  ov.addEventListener("mousedown",e=>{if(e.target===ov)closePartView();});
+  document.body.appendChild(ov);
+  document.addEventListener("keydown",_lbEsc);
+  if(window.THREE&&p.geo){_buildLbViewer(p,stage,S);}
+  else if(p.thumb){const img=document.createElement("img");img.src=p.thumb;img.alt="3D preview of "+p.name;img.style.cssText="max-width:100%;max-height:100%;border-radius:10px;background:#fff";stage.appendChild(img);}
+  else{stage.innerHTML='<div style="color:#9fb0cc;font-size:13px">No preview available for this file.</div>';}
+}
+function _buildLbViewer(part,stage,S){
+  const canvas=document.createElement("canvas");canvas.width=S;canvas.height=S;canvas.style.cssText="touch-action:none;cursor:grab;border-radius:10px";
+  const r=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});r.setPixelRatio(Math.min(2,window.devicePixelRatio||1));r.setSize(S,S,false);
+  const scene=new THREE.Scene();const cam=new THREE.PerspectiveCamera(33,1,0.1,100000);
+  scene.add(new THREE.AmbientLight(0xffffff,0.6));
+  const k=new THREE.DirectionalLight(0xffffff,0.95);k.position.set(2,3,2);scene.add(k);
+  const fl=new THREE.DirectionalLight(0xffffff,0.35);fl.position.set(-2,-1,-1.5);scene.add(fl);
+  const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.BufferAttribute(part.geo,3));
+  g.computeVertexNormals();g.computeBoundingBox();
+  const ctr=g.boundingBox.getCenter(new THREE.Vector3());g.translate(-ctr.x,-ctr.y,-ctr.z);
+  const sz=g.boundingBox.getSize(new THREE.Vector3());const rad=Math.max(sz.x,sz.y,sz.z)||1;
+  const mesh=new THREE.Mesh(g,finishMat(part));scene.add(mesh);
+  cam.position.set(0,0,rad*2.5);cam.lookAt(0,0,0);
+  const v={canvas,renderer:r,scene,cam,mesh,rotX:0.4,rotY:0.6,auto:true,drag:false,lx:0,ly:0};
+  const down=e=>{v.drag=true;v.auto=false;const q=e.touches?e.touches[0]:e;v.lx=q.clientX;v.ly=q.clientY;if(e.cancelable)e.preventDefault();};
+  const move=e=>{if(!v.drag)return;const q=e.touches?e.touches[0]:e;v.rotY+=(q.clientX-v.lx)*0.01;v.rotX+=(q.clientY-v.ly)*0.01;v.lx=q.clientX;v.ly=q.clientY;if(e.cancelable)e.preventDefault();};
+  const up=()=>{v.drag=false;};
+  canvas.addEventListener("mousedown",down);window.addEventListener("mousemove",move);window.addEventListener("mouseup",up);
+  canvas.addEventListener("touchstart",down,{passive:false});canvas.addEventListener("touchmove",move,{passive:false});window.addEventListener("touchend",up);
+  stage.appendChild(canvas);
+  viewers["__lb"]=v;startAnim();
+}
+
 function partFromGeom(file,buf,r){
   return {id:++pid,name:file.name.replace(/\.(stl|stp|step)$/i,""),fileName:file.name,fileBuf:buf,
+    unit:"mm",baseX:r.x,baseY:r.y,baseZ:r.z,baseVol:r.volMM3/1000,
     x:+r.x.toFixed(1),y:+r.y.toFixed(1),z:+r.z.toFixed(1),vol:+(r.volMM3/1000).toFixed(2),
     qty:1,color:"natural",dye:false,vs:false,vsPrice:null,tumble:false,inserts:false,insertQty:1,tapped:false,tapQty:1,inspect:false,inspQty:1,geo:r.pos,area:r.areaMM2,thumb:renderThumb(r.pos)};
+}
+/* mm↔inch reinterpretation: STL/STEP are unitless, so an inch-exported file reads too small.
+   Toggling to "in" reinterprets the raw parsed numbers as inches (×25.4 dims, ×25.4³ volume).
+   Base values are preserved so switching back and forth never drifts. */
+function applyUnit(p){
+  if(p.baseX==null)return;
+  const f=(p.unit==="in")?25.4:1;
+  p.x=+(p.baseX*f).toFixed(1);
+  p.y=+(p.baseY*f).toFixed(1);
+  p.z=+(p.baseZ*f).toFixed(1);
+  p.vol=+(p.baseVol*f*f*f).toFixed(2);
 }
 function handleFiles(files){[...files].forEach(file=>{
   const ext=(file.name.split(".").pop()||"").toLowerCase();
@@ -770,7 +835,7 @@ function render(){
       <div class="top">
         <div style="display:flex;gap:12px;align-items:flex-start;min-width:0">
           <div class="lineno">${i+1}</div>
-          ${window.THREE&&p.geo?`<div class="viewwrap"><div class="viewslot" data-view="${p.id}" title="Drag to rotate"></div><div class="viewhint">↻ drag to rotate</div></div>`:(p.thumb?`<img class="thumb" src="${p.thumb}" alt="3D preview of ${esc(p.name)}">`:"")}
+          ${window.THREE&&p.geo?`<div class="viewwrap"><div class="viewslot" data-view="${p.id}" title="Drag to rotate"></div><div class="viewhint">↻ drag · <a href="#" data-expand="${p.id}" style="color:inherit;text-decoration:underline;cursor:pointer">⤢ enlarge</a></div></div>`:(p.thumb?`<img class="thumb" src="${p.thumb}" alt="3D preview of ${esc(p.name)}" data-expand="${p.id}" title="Click to enlarge" style="cursor:zoom-in">`:"")}
           <div style="min-width:0"><div class="nm">${esc(p.name)}</div>
           <div class="dims">${isMan?`STEP file · qty <b>${p.qty}</b> · <span class="save">manual quote</span>${(p.override>0)?` · <span class="save">custom $</span>`:""}`:`${p.x}×${p.y}×${p.z} mm · ${p.vol} cm³ · qty <b>${p.qty}</b>${c.fixed?` · <span class="save">custom $</span>`:`${c.qp>0?` · <span class="save">${c.qp}% qty</span>`:""}${_valPct>0?` · <span class="save">${_valPct}% order</span>`:""}${_addlPct>0?` · <span class="save">${_addlPct}% add&#39;l</span>`:""}${_t0.promoApplied?` · <span class="save">${_t0.promoPct}% promo</span>`:""}`}`}</div>
           ${isMan?`<div class="dims" style="opacity:.7;margin-top:1px">Awaiting manual measurement — ${oversized(p)?"file too large to upload, please email it":"STEP attached for review"}</div>`:`<div class="dims" style="opacity:.7;margin-top:1px">${(p.x/25.4).toFixed(2)}×${(p.y/25.4).toFixed(2)}×${(p.z/25.4).toFixed(2)} in · ${(p.vol*0.0610237).toFixed(2)} in³</div>`}</div>
@@ -784,6 +849,11 @@ function render(){
       </div>
       <div class="opts">
         <div class="o"><label>Quantity</label><input type="number" min="1" step="1" data-k="qty" data-id="${p.id}" value="${p.qty}"></div>
+        ${(!isMan&&p.baseX!=null)?`<div class="o"><label>Units <span style="font-weight:400;color:var(--muted)">(if size looks off)</span></label>
+          <select data-k="unit" data-id="${p.id}">
+            <option value="mm"${(p.unit||"mm")==="mm"?" selected":""}>Millimeters (mm)</option>
+            <option value="in"${p.unit==="in"?" selected":""}>Inches → convert to mm</option>
+          </select></div>`:""}
         <div class="o colw"><label>Color</label>
           <select data-k="color" data-id="${p.id}">
             <option value="natural"${partColor(p)==="natural"?" selected":""}>White (Natural) — included</option>
@@ -832,6 +902,7 @@ function render(){
       else if(k==="override"||k==="vsPrice"){const val=(inp.value||"").trim();const n=parseFloat(val);p[k]=(val===""||!(n>0))?null:n;}
       else p[k]=(k==="qty"||k==="insertQty"||k==="tapQty"||k==="inspQty")?Math.max(1,parseInt(inp.value)||1):inp.value;
       if(k==="color") p.dye=(p.color!=="natural");
+      if(k==="unit") applyUnit(p);
       render();});
   });
   ul.querySelectorAll("[data-draw]").forEach(inp=>{
@@ -842,6 +913,7 @@ function render(){
       f.arrayBuffer().then(buf=>{p.drawingBuf=buf;p.drawingName=f.name;render();});
     });
   });
+  ul.querySelectorAll("[data-expand]").forEach(el=>el.addEventListener("click",e=>{e.preventDefault();openPartView(el.dataset.expand);}));
   parts.forEach(p=>{const slot=ul.querySelector('.viewslot[data-view="'+p.id+'"]');const vv=viewers[p.id];if(slot&&vv){slot.appendChild(vv.canvas);applyFinish(vv.mesh.material,p);}});
 
   const has=quotable();
