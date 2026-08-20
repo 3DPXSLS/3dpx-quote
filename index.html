@@ -719,14 +719,16 @@ function disposeViewer(id){const v=viewers[id];if(!v)return;try{v.renderer.dispo
 
 /* ---- click-to-enlarge lightbox (big interactive 3D if geometry exists, else enlarged thumbnail) ---- */
 function _lbEsc(e){if(e.key==="Escape")closePartView();}
-function closePartView(){const ov=document.getElementById("partLightbox");if(!ov)return;disposeViewer("__lb");document.removeEventListener("keydown",_lbEsc);ov.remove();}
+function closePartView(){const el=document.getElementById("partLightboxOv")||document.getElementById("partLightbox");if(!el)return;disposeViewer("__lb");document.removeEventListener("keydown",_lbEsc);el.remove();}
 function openPartView(id){
   const p=parts.find(x=>x.id==id);if(!p)return;
   closePartView();
-  const ov=document.createElement("div");ov.id="partLightbox";
-  ov.style.cssText="position:fixed;inset:0;background:rgba(6,12,24,.82);z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:20px";
-  const box=document.createElement("div");
-  box.style.cssText="position:relative;background:#0f1b30;border-radius:14px;padding:16px 16px 16px;max-width:94vw;max-height:94vh;box-shadow:0 20px 60px rgba(0,0,0,.6);display:flex;flex-direction:column;align-items:center;gap:8px";
+  // When embedded in an iframe, a position:fixed overlay anchors to the TOP of the tall
+  // iframe (off-screen), so open an inline panel under the part card instead. Standalone
+  // page uses the fullscreen dark overlay.
+  const embedded=(window.parent!==window);
+  const card=document.querySelector('[data-card="'+id+'"]');
+  const box=document.createElement("div");box.id="partLightbox";
   const close=document.createElement("button");close.textContent="×";close.title="Close";
   close.style.cssText="position:absolute;top:8px;right:10px;width:34px;height:34px;border:none;border-radius:8px;background:rgba(255,255,255,.12);color:#fff;font-size:22px;line-height:1;cursor:pointer;z-index:2";
   close.onclick=closePartView;
@@ -737,15 +739,28 @@ function openPartView(id){
   sub.style.cssText="color:#9fb0cc;font-size:12.5px";
   sub.textContent=p.manual?"STEP file · manual quote":(p.x+"×"+p.y+"×"+p.z+" mm · "+p.vol+" cm³");
   const stage=document.createElement("div");
-  const S=Math.max(240,Math.min(560,Math.floor(Math.min(window.innerWidth,window.innerHeight)*0.68)));
+  let S,mount;
+  if(embedded){
+    const cw=(card?card.clientWidth:600);
+    S=Math.max(240,Math.min(460,cw-60));
+    box.style.cssText="position:relative;background:#0f1b30;border-radius:14px;padding:14px;margin:12px 0 6px;box-shadow:0 12px 30px rgba(0,0,0,.4);display:flex;flex-direction:column;align-items:center;gap:8px";
+    mount=box;
+  }else{
+    S=Math.max(240,Math.min(560,Math.floor(Math.min(window.innerWidth,window.innerHeight)*0.68)));
+    box.style.cssText="position:relative;background:#0f1b30;border-radius:14px;padding:16px;max-width:94vw;max-height:94vh;box-shadow:0 20px 60px rgba(0,0,0,.6);display:flex;flex-direction:column;align-items:center;gap:8px";
+    const ov=document.createElement("div");ov.id="partLightboxOv";
+    ov.style.cssText="position:fixed;inset:0;background:rgba(6,12,24,.82);z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:20px";
+    ov.addEventListener("mousedown",e=>{if(e.target===ov)closePartView();});
+    ov.appendChild(box);mount=ov;
+  }
   stage.style.cssText="width:"+S+"px;height:"+S+"px;max-width:88vw;display:flex;align-items:center;justify-content:center;margin-top:2px";
-  box.appendChild(close);box.appendChild(title);box.appendChild(sub);box.appendChild(stage);ov.appendChild(box);
-  ov.addEventListener("mousedown",e=>{if(e.target===ov)closePartView();});
-  document.body.appendChild(ov);
+  box.appendChild(close);box.appendChild(title);box.appendChild(sub);box.appendChild(stage);
+  if(embedded&&card){card.appendChild(mount);} else {document.body.appendChild(mount);}
   document.addEventListener("keydown",_lbEsc);
   if(window.THREE&&p.geo){_buildLbViewer(p,stage,S,box);}
   else if(p.thumb){const img=document.createElement("img");img.src=p.thumb;img.alt="3D preview of "+p.name;img.style.cssText="max-width:100%;max-height:100%;border-radius:10px;background:#fff";stage.appendChild(img);}
   else{stage.innerHTML='<div style="color:#9fb0cc;font-size:13px">No preview available for this file.</div>';}
+  if(embedded)box.scrollIntoView({behavior:"smooth",block:"nearest"});
 }
 /* Sprite text label (canvas texture) that always faces the camera — used for the dimension callouts. */
 function _lbLabel(text,color){
@@ -910,7 +925,7 @@ function render(){
     let nudge="";
     if(nt&&!c.fixed){const need=nt.q-p.qty, eaNext=c.list*(1-nt.d/100);
       nudge=`<div class="nudge" data-bump="${p.id}" data-to="${nt.q}">💡 Add ${need} more (${nt.q} total) for <b>${nt.d}% off</b> — ${money(eaNext)}/ea<span class="go">Apply →</span></div>`;}
-    const li=document.createElement("li");li.className="part";
+    const li=document.createElement("li");li.className="part";li.dataset.card=p.id;
     li.innerHTML=`
       <div class="top">
         <div style="display:flex;gap:12px;align-items:flex-start;min-width:0">
