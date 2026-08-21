@@ -169,7 +169,8 @@ export default async (req) => {
     : ("*** WEB PO / INVOICE ORDER — UNPAID — verify credit & confirm price before production *** | Customer PO: " + po);
   const engTxt = engHours > 0 ? ("Engineering services " + engHours + "h @ $" + RULES.engRate + "/hr") : "";
   const detail = [summary, engTxt].filter(Boolean).join(" | ") || "(no parts)";
-  const notes = (notesPrefix + " | " + detail + " | " + shipMethod + (body.matCert?" | Material cert":"")).slice(0, 495);
+  const custNote = String(body.note || "").trim();
+  const notes = (notesPrefix + " | " + detail + " | " + shipMethod + (body.matCert?" | Material cert":"") + (body.taxExempt?" | TAX EXEMPT":"") + (custNote?(" | Customer note: " + custNote):"")).slice(0, 495);
 
   const contactVal = (body.name || "") + (body.email ? " <" + body.email + ">" : "");
   const due = /^\d{4}-\d{2}-\d{2}$/.test(String(body.dueDate||"")) ? body.dueDate : addBusinessDays(new Date(), leadDaysCalc(parts)).toISOString().slice(0,10);

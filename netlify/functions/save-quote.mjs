@@ -47,6 +47,7 @@ export default async (req) => {
       inserts: !!p.inserts, insertQty: Math.max(1, parseInt(p.insertQty) || 1),
       tapped: !!p.tapped, tapQty: Math.max(1, parseInt(p.tapQty) || 1),
       inspect: !!p.inspect, inspQty: Math.max(1, parseInt(p.inspQty) || 1),
+      notes: String(p.notes || "").slice(0, 600),
       drawingName: p.drawingName ? String(p.drawingName).slice(0,120) : "",
       file: p.file ? String(p.file).slice(0,160) : "",
       thumb: (p.thumb && String(p.thumb).startsWith("data:image")) ? String(p.thumb).slice(0, 400000) : "",

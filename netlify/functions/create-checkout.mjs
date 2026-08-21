@@ -154,7 +154,8 @@ export default async (req) => {
   const shipMethodLabel = SHIP_SPEEDS[speed].label + (speed==="pickup" ? " (free)" : "") + acctInfo;
   const engTxt = engHours > 0 ? ("Engineering services " + engHours + "h @ $" + RULES.engRate + "/hr") : "";
   const detail = [summary, engTxt].filter(Boolean).join(" | ") || "SLS parts";
-  const notes = (detail + " | " + shipMethodLabel + (body.matCert?" | Material cert":"") + (taxExempt?" | TAX EXEMPT":"") + " | Paid via Stripe").slice(0, 495);
+  const custNote = String(body.note || "").trim();
+  const notes = (detail + " | " + shipMethodLabel + (body.matCert?" | Material cert":"") + (taxExempt?" | TAX EXEMPT":"") + (custNote?(" | Customer note: " + custNote):"") + " | Paid via Stripe").slice(0, 495);
 
   let ret = (body.returnUrl && /^https?:\/\//.test(body.returnUrl)) ? body.returnUrl : (req.headers.get("origin") || "");
   const sep = ret.includes("?") ? "&" : "?";
