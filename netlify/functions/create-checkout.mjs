@@ -120,12 +120,14 @@ export default async (req) => {
   for (const p of parts) { if (p.ov != null) delete p.ov; if (p.vsp != null) delete p.vsp; }  // never trust client-supplied override / VS price
   let addlDisc = Math.max(0, +body.addlDisc || 0);
   let engHours = Math.max(0, +body.engHours || 0);
+  let taxExempt = false;  // rep-only; only trusted from the saved quote blob, never from the client body
   if (body.quoteId && /^Q-[A-Za-z0-9]{4,12}$/.test(body.quoteId)) {
     try {
       const { getStore } = await import("@netlify/blobs");
       const q = await getStore("orders").get("Q-QUOTES/" + body.quoteId + ".json", { type: "json" });
       if (q && typeof q.addlDisc === "number") addlDisc = Math.max(0, q.addlDisc);
       if (q && typeof q.engHours === "number") engHours = Math.max(0, q.engHours);
+      if (q && typeof q.taxExempt === "boolean") taxExempt = q.taxExempt;
       if (q && Array.isArray(q.parts)) q.parts.forEach((qp, i) => { if (parts[i] && qp && +qp.override > 0) parts[i].ov = +qp.override; if (parts[i] && qp && +qp.vsPrice > 0) parts[i].vsp = +qp.vsPrice; });
     } catch (e) { /* keep fallback */ }
   }
@@ -152,7 +154,7 @@ export default async (req) => {
   const shipMethodLabel = SHIP_SPEEDS[speed].label + (speed==="pickup" ? " (free)" : "") + acctInfo;
   const engTxt = engHours > 0 ? ("Engineering services " + engHours + "h @ $" + RULES.engRate + "/hr") : "";
   const detail = [summary, engTxt].filter(Boolean).join(" | ") || "SLS parts";
-  const notes = (detail + " | " + shipMethodLabel + (body.matCert?" | Material cert":"") + " | Paid via Stripe").slice(0, 495);
+  const notes = (detail + " | " + shipMethodLabel + (body.matCert?" | Material cert":"") + (taxExempt?" | TAX EXEMPT":"") + " | Paid via Stripe").slice(0, 495);
 
   let ret = (body.returnUrl && /^https?:\/\//.test(body.returnUrl)) ? body.returnUrl : (req.headers.get("origin") || "");
   const sep = ret.includes("?") ? "&" : "?";
@@ -165,7 +167,7 @@ export default async (req) => {
   // Sales tax: Stripe Tax computes the rate from the customer's address and only charges where
   // you've added a tax registration (e.g. Illinois). Requires Stripe Tax to be activated in the
   // dashboard (Settings -> Tax) with your origin address + an Illinois registration. Per-mode (test/live).
-  f.append("automatic_tax[enabled]", "true");
+  f.append("automatic_tax[enabled]", taxExempt ? "false" : "true");  // rep-marked tax-exempt customers: no sales tax
   f.append("billing_address_collection", "required");  // gives Stripe the address it needs for tax
   f.append("line_items[0][price_data][currency]", "usd");
   f.append("line_items[0][price_data][product_data][name]", "3DPX SLS order - Nylon 12 (PA12)");
@@ -191,6 +193,7 @@ export default async (req) => {
   }
   f.append("metadata[material_cert]", body.matCert ? "yes" : "no");
   f.append("metadata[eng_hours]", String(engHours));
+  f.append("metadata[tax_exempt]", taxExempt ? "yes" : "no");
   f.append("metadata[est_ship]", String(shipEstimate(parts, body.region, speed, body.zip)));  // logged to Est. Shipping by the webhook
   f.append("metadata[total_parts]", String(totalParts));
   f.append("metadata[total_vol]", String(totalVol));
