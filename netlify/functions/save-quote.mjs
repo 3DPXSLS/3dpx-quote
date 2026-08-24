@@ -62,6 +62,7 @@ export default async (req) => {
     addlDisc: authed ? Math.max(0, +body.addlDisc || 0) : 0,        // rep-only; stripped from public saves
     engHours: authed ? Math.max(0, +body.engHours || 0) : 0,        // rep-only engineering-services hours @ $124/hr
     taxExempt: authed ? !!body.taxExempt : false,                   // rep-only; a web customer can never mark themselves tax exempt
+    certWaive: authed ? !!body.certWaive : false,                   // rep-only; waives the $100 material-cert fee
     promo: String(body.promo || "").trim().toUpperCase().slice(0,24),
     dueDate: /^\d{4}-\d{2}-\d{2}$/.test(String(body.dueDate || "")) ? body.dueDate : "",
     note: String(body.note || "").slice(0, 600),

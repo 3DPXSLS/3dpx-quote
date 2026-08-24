@@ -121,6 +121,7 @@ export default async (req) => {
   let addlDisc = Math.max(0, +body.addlDisc || 0);
   let engHours = Math.max(0, +body.engHours || 0);
   let taxExempt = false;  // rep-only; only trusted from the saved quote blob, never from the client body
+  let certWaive = false;  // rep-only; waives the material-cert fee (cert still provided)
   if (body.quoteId && /^Q-[A-Za-z0-9]{4,12}$/.test(body.quoteId)) {
     try {
       const { getStore } = await import("@netlify/blobs");
@@ -128,6 +129,7 @@ export default async (req) => {
       if (q && typeof q.addlDisc === "number") addlDisc = Math.max(0, q.addlDisc);
       if (q && typeof q.engHours === "number") engHours = Math.max(0, q.engHours);
       if (q && typeof q.taxExempt === "boolean") taxExempt = q.taxExempt;
+      if (q && typeof q.certWaive === "boolean") certWaive = q.certWaive;
       if (q && Array.isArray(q.parts)) q.parts.forEach((qp, i) => { if (parts[i] && qp && +qp.override > 0) parts[i].ov = +qp.override; if (parts[i] && qp && +qp.vsPrice > 0) parts[i].vsp = +qp.vsPrice; });
     } catch (e) { /* keep fallback */ }
   }
@@ -137,7 +139,7 @@ export default async (req) => {
   if (needsManual) return json({ error: "This order includes an item that needs a manual quote — please use Submit PO or email sales@3dpx.com, and we'll send a payment link." }, 400);
 
   const promoPct = PROMO[String(body.promo||"").trim().toUpperCase()] || 0;
-  const amount = Math.round(orderTotal(parts, body.region, !!body.matCert, speed, body.zip, addlDisc, promoPct, engHours*RULES.engRate) * 100);
+  const amount = Math.round(orderTotal(parts, body.region, (!!body.matCert && !certWaive), speed, body.zip, addlDisc, promoPct, engHours*RULES.engRate) * 100);
   if (amount < 50) return json({ error: "Order total too low." }, 400);
 
   const totalParts = parts.reduce((s,p)=>s+(Math.max(1,parseInt(p.qty)||1)),0);
@@ -155,7 +157,7 @@ export default async (req) => {
   const engTxt = engHours > 0 ? ("Engineering services " + engHours + "h @ $" + RULES.engRate + "/hr") : "";
   const detail = [summary, engTxt].filter(Boolean).join(" | ") || "SLS parts";
   const custNote = String(body.note || "").trim();
-  const notes = (detail + " | " + shipMethodLabel + (body.matCert?" | Material cert":"") + (taxExempt?" | TAX EXEMPT":"") + (custNote?(" | Customer note: " + custNote):"") + " | Paid via Stripe").slice(0, 495);
+  const notes = (detail + " | " + shipMethodLabel + (body.matCert?(certWaive?" | Material cert (fee waived)":" | Material cert"):"") + (taxExempt?" | TAX EXEMPT":"") + (custNote?(" | Customer note: " + custNote):"") + " | Paid via Stripe").slice(0, 495);
 
   let ret = (body.returnUrl && /^https?:\/\//.test(body.returnUrl)) ? body.returnUrl : (req.headers.get("origin") || "");
   const sep = ret.includes("?") ? "&" : "?";
@@ -192,7 +194,7 @@ export default async (req) => {
     f.append("metadata[ship_carrier]", (body.carrier||"").slice(0,60));
     f.append("metadata[ship_account]", (body.shipAccount||"").slice(0,80));
   }
-  f.append("metadata[material_cert]", body.matCert ? "yes" : "no");
+  f.append("metadata[material_cert]", body.matCert ? (certWaive ? "yes (fee waived)" : "yes") : "no");
   f.append("metadata[eng_hours]", String(engHours));
   f.append("metadata[tax_exempt]", taxExempt ? "yes" : "no");
   f.append("metadata[est_ship]", String(shipEstimate(parts, body.region, speed, body.zip)));  // logged to Est. Shipping by the webhook

@@ -191,6 +191,7 @@
       <div><label>Additional discount (% off order)</label><input id="addlDisc" type="number" min="0" max="100" step="0.5" placeholder="0"></div>
       <div><label>Custom due date (optional)</label><input id="repDue" type="date"></div>
       <div><label>Tax status</label><label style="display:inline-flex;align-items:center;gap:7px;font-size:13px;padding:8px 0;cursor:pointer"><input type="checkbox" id="taxExempt"> Tax exempt — no sales tax</label></div>
+      <div><label>Material cert fee</label><label style="display:inline-flex;align-items:center;gap:7px;font-size:13px;padding:8px 0;cursor:pointer"><input type="checkbox" id="certWaive"> Waive $100 fee — cert still provided</label></div>
       <div><label>Material price check</label><div id="perCcReadout" style="padding:9px 0;font-weight:700;color:#1b2a4a">$0.00 / cm³</div></div>
     </div>
     <div style="font-size:11px;color:#8a95a8;margin-top:6px">$/cm³ = discounted parts value ÷ total printed volume. The additional discount reduces the customer's total and the amount charged. Visible only in the internal tool.</div>
@@ -500,6 +501,7 @@ let ENG_HOURS=0;  // rep-set engineering-services hours @ $125/hr, internal only
 function quotable(){ return parts.length>0 || (ENG_HOURS>0); }
 let REP_DUE="";   // rep-set custom due date (YYYY-MM-DD), internal only; blank = auto from lead time
 let TAX_EXEMPT=false; // rep-set: customer is tax exempt → no sales tax (internal only)
+let CERT_WAIVED=false; // rep-set: waive the material-certification fee (cert still provided, $0)
 const PROMO_CODES={"3DPXSAVE10":10, "3DPXSAVE5":5};  // customer promo codes → % off. Editable. STACKS on top of the automatic + additional discounts.
 let PROMO_CODE="", PROMO_PCT=0;          // resolved from the code the customer typed (0 = none/invalid)
 function resolvePromo(code){const k=String(code||"").trim().toUpperCase();return {code:k, pct:PROMO_CODES[k]||0};}
@@ -528,13 +530,15 @@ function orderTotals(){
   const speed=shipSpeed(), pickup=(speed==="pickup"), account=(speed==="account");
   const est=estimateShipping(parts, region, speed, zip);
   const shipping=est.shipping, billableLb=est.billableLb, zone=est.zone;
-  const matCert=(parts.length&&typeof document!=="undefined"&&document.getElementById("matCert")&&document.getElementById("matCert").checked)?RULES.matCertFee:0;
+  const matCertOn=!!(parts.length&&typeof document!=="undefined"&&document.getElementById("matCert")&&document.getElementById("matCert").checked);
+  const matCert=(matCertOn&&!CERT_WAIVED)?RULES.matCertFee:0;   // rep can waive the cert fee (still supplied, no charge)
+  const matCertWaived=matCertOn&&CERT_WAIVED;
   const engHours=Math.max(0,ENG_HOURS||0);
   const eng=engHours*RULES.engRate;                 // engineering services: flat labor, not discounted
   const totalVol=parts.reduce((s,p)=>s+(p.vol||0)*(p.qty||0),0);
   const perCc=totalVol>0?afterDisc/totalVol:0;
   return {gross, qtyDisc:qtyDiscShown, valPct:valPctShown, valDisc:valDiscShown, addlDisc:addlApplied, addlPct, promoApplied, promoPct:promoApplied?promoPct:0, promoDisc, promoCode:promoApplied?PROMO_CODE:"", afterDisc, topUp,
-          shipping, billableLb, zone, matCert, engHours, eng, speed, pickup, account, perCc, totalVol, total:afterDisc+topUp+shipping+matCert+eng, saved:gross-afterDisc};
+          shipping, billableLb, zone, matCert, matCertWaived, engHours, eng, speed, pickup, account, perCc, totalVol, total:afterDisc+topUp+shipping+matCert+eng, saved:gross-afterDisc};
 }
 function regionLabel(){const r=(document.getElementById("sRegion")||{}).value;return r==="intl"?"International":r==="camx"?"Canada / Mexico":"United States";}
 /* ============================ <<< END PRICING ENGINE >>> ============================ */
@@ -1047,6 +1051,7 @@ function render(){
   lines+=`<div class="oline"><span>Sales tax</span><b>${TAX_EXEMPT?'<span style="color:#1e7d52">$0.00 · tax exempt</span>':'calculated at checkout'}</b></div>`;
   lines+=REP_DUE?`<div class="oline"><span>⏱ Due date</span><b>${new Date(REP_DUE+"T00:00:00").toLocaleDateString("en-US")}</b></div>`:`<div class="oline"><span>⏱ Est. lead time</span><b>${orderLeadDays()} business days</b></div>`;
   if(t.matCert>0) lines+=`<div class="oline"><span>Material certification</span><b>${money(t.matCert)}</b></div>`;
+  else if(t.matCertWaived) lines+=`<div class="oline save"><span>Material certification</span><b>Included — fee waived</b></div>`;
   const hasUnpriced=parts.some(p=>p.manual&&!(p.override>0));
   if(hasUnpriced) lines+=`<div class="oline"><span style="color:#8a5a00">Manual-quote item(s)</span><b style="color:#8a5a00">priced by our team</b></div>`;
   lines+=`<div class="oline tot"><span>Estimated total${hasUnpriced?" (excl. manual items)":""}</span><b>${money(t.total)}</b></div>`;
@@ -1069,7 +1074,19 @@ function esc(s){return(s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"
 
 /* ---- quote document (for PDF) ---- */
 function quoteNum(){const d=new Date();return "WEB-"+d.getFullYear()+(""+(d.getMonth()+1)).padStart(2,"0")+(""+d.getDate()).padStart(2,"0")+"-"+(""+d.getHours()).padStart(2,"0")+(""+d.getMinutes()).padStart(2,"0");}
+/* Pull the notes straight out of the DOM before building any document. The per-part textareas
+   normally write into p.notes as you type, but reading them here as well guarantees whatever is
+   on screen ends up on the PDF even if a keystroke handler didn't fire (e.g. paste, autofill). */
+function syncNotesFromDOM(){
+  try{
+    document.querySelectorAll('textarea[data-k="notes"][data-id]').forEach(ta=>{
+      const p=parts.find(x=>x.id==ta.dataset.id); if(p) p.notes=ta.value||"";
+    });
+  }catch(e){}
+}
+function orderNotesText(){const el=document.getElementById("orderNotes");return el?(el.value||""):"";}
 function buildQuoteDoc(qn){
+  syncNotesFromDOM();
   const t=orderTotals();
   const engRow=t.eng>0?`<tr style="background:#fff7f0">
     <td style="padding:8px 6px;border-bottom:1px solid #eef2f8"><span style="font-weight:600">Engineering services</span></td>
@@ -1135,13 +1152,13 @@ function buildQuoteDoc(qn){
       ${t.topUp>0?`<div style="display:flex;justify-content:space-between;padding:3px 0"><span>Order minimum top-up</span><span>${money(t.topUp)}</span></div>`:""}
       <div style="display:flex;justify-content:space-between;padding:3px 0;color:#42506b"><span>${shipRowLabel}</span><span>${shipRowVal}</span></div>
       <div style="display:flex;justify-content:space-between;padding:3px 0;color:#42506b"><span>Sales tax</span><span>${TAX_EXEMPT?"$0.00 (tax exempt)":"calculated at checkout"}</span></div>
-      ${t.matCert>0?`<div style="display:flex;justify-content:space-between;padding:3px 0"><span>Material certification</span><span>${money(t.matCert)}</span></div>`:""}
+      ${t.matCert>0?`<div style="display:flex;justify-content:space-between;padding:3px 0"><span>Material certification</span><span>${money(t.matCert)}</span></div>`:(t.matCertWaived?`<div style="display:flex;justify-content:space-between;padding:3px 0;color:#1e9e6a"><span>Material certification</span><span>Included (fee waived)</span></div>`:"")}
       ${t.eng>0?`<div style="display:flex;justify-content:space-between;padding:3px 0"><span>Engineering services (${t.engHours} hr @ ${money(RULES.engRate)}/hr)</span><span>${money(t.eng)}</span></div>`:""}
       ${t.saved>0.005?`<div style="display:flex;justify-content:space-between;padding:5px 0 3px;color:#1e9e6a;font-weight:700;border-top:1px solid #eef2f8;margin-top:3px"><span>You save</span><span>${money(t.saved)} (${Math.round(t.saved/t.gross*100)}%)</span></div>`:""}
       <div style="display:flex;justify-content:space-between;align-items:center;background:#1b2a4a;color:#fff;padding:9px 14px;border-radius:8px;margin-top:8px"><span style="font-size:10.5px;text-transform:uppercase;letter-spacing:1px">Estimated total</span><span style="font-size:19px;font-weight:800">${money(t.total)}</span></div>
      </div>
     </div>
-    ${(()=>{const on=(document.getElementById("orderNotes")||{}).value||"";return on.trim()?`<div style="margin-top:18px;background:#f5f8fc;border:1px solid #e2e8f2;border-radius:8px;padding:10px 14px"><div style="color:#6b7891;font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Order notes</div><div style="font-size:12px;color:#1b2330;white-space:pre-wrap">${esc(on)}</div></div>`:"";})()}
+    ${(()=>{const on=orderNotesText();return on.trim()?`<div style="margin-top:18px;background:#f5f8fc;border:1px solid #e2e8f2;border-radius:8px;padding:10px 14px"><div style="color:#6b7891;font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Order notes</div><div style="font-size:12px;color:#1b2330;white-space:pre-wrap">${esc(on)}</div></div>`:"";})()}
     <div style="margin-top:24px;font-size:11px;color:#5a6678;border-top:1px solid #e2e8f2;padding-top:12px;line-height:1.6">
       <b style="color:#1b2a4a">Quote valid 30 days.</b> Estimates for SLS / Nylon 12 (PA12), natural white, standard finish unless noted; final pricing confirmed on file review. Tax &amp; shipping quoted separately · order minimum $40.<br>
       Standard tolerance ±0.3 mm (±0.012″) up to 100 mm, then ±0.3% of nominal (varies with geometry) · minimum wall 1.0 mm.</div>
@@ -1216,6 +1233,7 @@ function genOrderNo(){if(PREVIEW_ORDER_NO)return PREVIEW_ORDER_NO;const d=new Da
 /* ---- Production traveler PDF (per part) — auto-attached to the SLS Jobs order ---- */
 function estDueDate(days){const r=new Date();let a=0;while(a<days){r.setDate(r.getDate()+1);const d=r.getDay();if(d!==0&&d!==6)a++;}return r.toLocaleDateString("en-US");}
 function buildTravelerPDF(orderNo,opts){
+  syncNotesFromDOM();
   opts=opts||{};
   const JS=window.jspdf&&window.jspdf.jsPDF; if(!JS||!parts.length) return null;
   const doc=new JS({unit:"pt",format:"letter"}); if(typeof doc.autoTable!=="function") return null;
@@ -1225,7 +1243,7 @@ function buildTravelerPDF(orderNo,opts){
   const gen=new Date().toLocaleString("en-US",{year:"numeric",month:"2-digit",day:"2-digit",hour:"numeric",minute:"2-digit"});
   const type=opts.po?("Web order (PO "+opts.po+")"):"Web order (card)";
   const cust=[v("cName"),v("cCo")].filter(Boolean).join(" — ")||"—";
-  const notesTxt="Bead blast standard. "+(opts.po?("PO "+opts.po+" — verify credit & confirm price before production. "):"")+(v("cEmail")?("Contact: "+v("cEmail")+". "):"")+(parts.some(p=>p.dye)?"Dyed parts per Color column. ":"")+(parts.some(p=>p.vs)?"Vapor smoothing required. ":"")+(parts.some(p=>p.tumble)?"Tumble finish required. ":"")+(parts.some(p=>insertCount(p))?"Threaded inserts to be installed — see per-part count. ":"")+(parts.some(p=>tapCount(p))?"Tapped holes required — see per-part count. ":"")+(parts.some(p=>inspCount(p))?"Formal inspection required — critical points per part. ":"")+((document.getElementById("orderNotes")||{}).value?("Order note: "+document.getElementById("orderNotes").value+". "):"");
+  const notesTxt="Bead blast standard. "+(opts.po?("PO "+opts.po+" — verify credit & confirm price before production. "):"")+(v("cEmail")?("Contact: "+v("cEmail")+". "):"")+(parts.some(p=>p.dye)?"Dyed parts per Color column. ":"")+(parts.some(p=>p.vs)?"Vapor smoothing required. ":"")+(parts.some(p=>p.tumble)?"Tumble finish required. ":"")+(parts.some(p=>insertCount(p))?"Threaded inserts to be installed — see per-part count. ":"")+(parts.some(p=>tapCount(p))?"Tapped holes required — see per-part count. ":"")+(parts.some(p=>inspCount(p))?"Formal inspection required — critical points per part. ":"")+(orderTotals().matCertWaived?"Material certification INCLUDED — fee waived. ":"")+(orderNotesText().trim()?("Order note: "+orderNotesText()+". "):"");
   const base={theme:"grid",styles:{fontSize:9.5,cellPadding:5,halign:"center",textColor:INK,lineColor:[210,216,226]},headStyles:{fillColor:NAVY,textColor:[255,255,255],fontStyle:"bold",halign:"center"},margin:{left:M,right:M},tableWidth:CW};
   parts.forEach((p,idx)=>{
     if(idx>0)doc.addPage();
@@ -1272,6 +1290,7 @@ async function uploadTraveler(orderNo,opts){
 /* ---- Packing slip PDF (customer-facing, no prices) — auto-attached to the order ---- */
 function buildPackingSlipPDF(orderNo,opts){
   opts=opts||{};
+  syncNotesFromDOM();
   const JS=window.jspdf&&window.jspdf.jsPDF; if(!JS||!parts.length) return null;
   const doc=new JS({unit:"pt",format:"letter"}); if(typeof doc.autoTable!=="function") return null;
   const NAVY=[27,42,74],ORANGE=[242,106,33],HEAD=[238,242,248],INK=[27,35,48],GREY=[90,102,120];
@@ -1300,11 +1319,13 @@ function buildPackingSlipPDF(orderNo,opts){
   const base={theme:"grid",styles:{fontSize:9.5,cellPadding:5,halign:"center",textColor:INK,lineColor:[210,216,226]},headStyles:{fillColor:NAVY,textColor:[255,255,255],fontStyle:"bold",halign:"center"},margin:{left:M,right:M},tableWidth:CW};
   doc.autoTable(Object.assign({},base,{startY:y,head:[["Order #","Order Date","PO","Delivery"]],body:[[orderNo,orderDate,opts.po||"—",deliv]]}));
   const totalPieces=parts.reduce((s,p)=>s+(parseInt(p.qty)||1),0);
-  const rows=parts.map((p,i)=>{const clr=p.dye?COLORS[partColor(p)].label:"White (Natural)";return [String(i+1),p.name,"SLS · Nylon 12 (PA12) · "+clr+" · "+finishLabel(p)+(oversized(p)?"   ***  FILE EMAILED SEPARATELY — too large to auto-upload":""),String(p.qty)];});
+  const rows=parts.map((p,i)=>{const clr=p.dye?COLORS[partColor(p)].label:"White (Natural)";return [String(i+1),p.name,"SLS · Nylon 12 (PA12) · "+clr+" · "+finishLabel(p)+(oversized(p)?"   ***  FILE EMAILED SEPARATELY — too large to auto-upload":"")+(p.notes?("\nNote: "+p.notes):""),String(p.qty)];});
   doc.autoTable({startY:doc.lastAutoTable.finalY+14,head:[["#","Item","Description","Qty"]],body:rows,foot:[["","",{content:"Total pieces",styles:{halign:"right"}},{content:String(totalPieces),styles:{halign:"center"}}]],theme:"grid",styles:{fontSize:9.5,cellPadding:6,textColor:INK,lineColor:[210,216,226]},headStyles:{fillColor:NAVY,textColor:[255,255,255],fontStyle:"bold"},footStyles:{fillColor:HEAD,textColor:NAVY,fontStyle:"bold"},columnStyles:{0:{cellWidth:28,halign:"center"},1:{cellWidth:160},2:{cellWidth:CW-238,halign:"left"},3:{cellWidth:50,halign:"center"}},margin:{left:M,right:M}});
   let ny=doc.lastAutoTable.finalY+18;
   doc.setFontSize(10);doc.setTextColor(INK[0],INK[1],INK[2]);doc.setFont("helvetica","bold");
   doc.text("Thank you for your order!",M,ny);
+  doc.setFont("helvetica","normal");doc.setTextColor(GREY[0],GREY[1],GREY[2]);doc.setFontSize(9);
+  {const on=orderNotesText();if(on.trim()){doc.setFont("helvetica","bold");doc.setTextColor(INK[0],INK[1],INK[2]);ny+=14;doc.text("Order notes:",M,ny);doc.setFont("helvetica","normal");doc.setTextColor(GREY[0],GREY[1],GREY[2]);ny+=12;doc.text(on,M,ny,{maxWidth:CW});ny+=6;}}
   doc.setFont("helvetica","normal");doc.setTextColor(GREY[0],GREY[1],GREY[2]);doc.setFontSize(9);
   ny+=14;doc.text("Material: SLS Nylon 12 (PA12). Bead blast standard finish. Questions about this shipment? sales@3dpx.com · (312) 896-3399.",M,ny,{maxWidth:CW});
   const ph=doc.internal.pageSize.getHeight();
@@ -1320,6 +1341,7 @@ async function uploadPackingSlip(orderNo,opts){
 /* ---- Quote PDF (with prices) — auto-attached to the order ---- */
 function buildQuotePDF(orderNo,opts){
   opts=opts||{};
+  syncNotesFromDOM();
   const JS=window.jspdf&&window.jspdf.jsPDF; if(!JS||!quotable()) return null;
   const doc=new JS({unit:"pt",format:"letter"}); if(typeof doc.autoTable!=="function") return null;
   const NAVY=[27,42,74],ORANGE=[242,106,33],HEAD=[238,242,248],INK=[27,35,48],GREY=[90,102,120];
@@ -1339,7 +1361,7 @@ function buildQuotePDF(orderNo,opts){
   y=Math.max(py,my)+8;
   const engRowPdf=t.eng>0?[["","Engineering services","Engineering / design services · "+money(RULES.engRate)+"/hr",t.engHours+" hr",money(RULES.engRate),money(t.eng),money(t.eng)]]:[];
   const partRows=parts.map((p,i)=>{const c=lineCalc(p);const ldf=lineFactor(c,t);const clr=p.dye?COLORS[partColor(p)].label:"White (Natural)";
-    const desc="SLS · Nylon 12 (PA12) · "+(p.dye?("Dyed "+clr):"White (Natural)")+(p.vs?(" · Vapor smoothed (+"+money(vsAmount(p))+"/pc)"):"")+(p.tumble?" · Tumbled":"")+(insertCount(p)?(" · "+insertCount(p)+" inserts"):"")+(tapCount(p)?(" · "+tapCount(p)+" tapped"):"")+(inspCount(p)?(" · "+inspCount(p)+"-pt inspection"):"")+(c.manual?" · quote pending":"");
+    const desc="SLS · Nylon 12 (PA12) · "+(p.dye?("Dyed "+clr):"White (Natural)")+(p.vs?(" · Vapor smoothed (+"+money(vsAmount(p))+"/pc)"):"")+(p.tumble?" · Tumbled":"")+(insertCount(p)?(" · "+insertCount(p)+" inserts"):"")+(tapCount(p)?(" · "+tapCount(p)+" tapped"):"")+(inspCount(p)?(" · "+inspCount(p)+"-pt inspection"):"")+(c.manual?" · quote pending":"")+(p.notes?(" · Note: "+p.notes):"");
     const listUnit=c.manual?"—":money(c.list), listLine=c.manual?"—":money(c.lineList), discUnit=c.manual?"quote pending":money(c.net*ldf);
     return ["",p.name,desc,String(p.qty),listUnit,listLine,discUnit];});
   const rows=engRowPdf.concat(partRows); rows.forEach((r,i)=>r[0]=String(i+1));
@@ -1348,6 +1370,8 @@ function buildQuotePDF(orderNo,opts){
     headStyles:{fillColor:NAVY,textColor:[255,255,255],fontStyle:"bold",halign:"center"},
     columnStyles:{0:{cellWidth:22,halign:"center"},1:{cellWidth:118},2:{cellWidth:CW-356,halign:"left",fontSize:8},3:{cellWidth:34,halign:"center"},4:{cellWidth:58,halign:"right"},5:{cellWidth:60,halign:"right"},6:{cellWidth:64,halign:"right",textColor:[30,158,106],fontStyle:"bold"}},
     margin:{left:M,right:M}});
+  {const on=orderNotesText();
+   if(on.trim())doc.autoTable({startY:doc.lastAutoTable.finalY+10,head:[["Order notes"]],body:[[on]],theme:"grid",styles:{fontSize:9,cellPadding:5,textColor:INK,lineColor:[210,216,226],halign:"left"},headStyles:{fillColor:HEAD,textColor:NAVY,fontStyle:"bold",halign:"left"},margin:{left:M,right:M},tableWidth:CW});}
   const rowsT=[["Subtotal (list)",money(t.gross)]];
   {const stdSave=t.saved-(t.promoDisc||0);
    if(stdSave>0.005)rowsT.push(["Discount"+(t.addlPct>0?(" (incl "+t.addlPct+"% add'l)"):""),"-"+money(stdSave)]);
@@ -1358,6 +1382,7 @@ function buildQuotePDF(orderNo,opts){
   rowsT.push(["Est. shipping ("+(t.pickup?"pickup":t.account?"your account":SHIP_SPEEDS[t.speed].label)+")",shipVal]);
   rowsT.push(["Sales tax",TAX_EXEMPT?"$0.00 (tax exempt)":"calculated at checkout"]);
   if(t.matCert>0)rowsT.push(["Material certification",money(t.matCert)]);
+  else if(t.matCertWaived)rowsT.push(["Material certification","Included (fee waived)"]);
   if(t.eng>0)rowsT.push(["Engineering services ("+t.engHours+" hr @ "+money(RULES.engRate)+"/hr)",money(t.eng)]);
   const half=CW*0.52, lx=M+CW-half;
   doc.autoTable({startY:doc.lastAutoTable.finalY+12,body:rowsT,theme:"plain",styles:{fontSize:10,cellPadding:3,textColor:INK},
@@ -1429,6 +1454,7 @@ async function uploadManifest(orderNo){
    (the server reads pricing authoritatively from the quote, never from the browser). Auto-saves one
    silently if the rep hasn't already, so internal Order&pay / PO / approved orders honor the override. */
 async function ensureQuoteSaved(){
+  syncNotesFromDOM();
   if(LOADED_QUOTE_ID) return LOADED_QUOTE_ID;
   if(!INTERNAL || !quotable()) return "";
   try{
@@ -1436,13 +1462,14 @@ async function ensureQuoteSaved(){
       body:JSON.stringify({token:INTERNAL_TOKEN,
         parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,vsPrice:(+p.vsPrice>0)?+p.vsPrice:null,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,inspect:!!p.inspect,inspQty:+p.inspQty||1,notes:String(p.notes||"").slice(0,600),drawingName:p.drawingName||"",file:p.fileName||"",thumb:"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
-        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,note:(document.getElementById("orderNotes")||{}).value||"",dueDate:REP_DUE||"",total:orderTotals().total,origin:location.origin,source:INTERNAL?"internal":"web",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
+        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,certWaive:CERT_WAIVED,note:orderNotesText(),dueDate:REP_DUE||"",total:orderTotals().total,origin:location.origin,source:INTERNAL?"internal":"web",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
     const d=await r.json().catch(()=>({}));
     if(d.ok){LOADED_QUOTE_ID=d.id;return d.id;}
   }catch(e){}
   return "";
 }
 async function startPayment(){
+  syncNotesFromDOM();
   if(!quotable()) return;
   if(!validEmail()) return;
   const btn=document.getElementById("payBtn"), orig=btn.textContent;
@@ -1471,7 +1498,7 @@ async function startPayment(){
         shipAccount:(shipSpeed()==="account")?v("sAcct"):"",
         shipAddress:(shipSpeed()==="pickup")?"Pickup at 3DPX (Chicago, IL)":[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "),
         matCert:document.getElementById("matCert").checked,
-        quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,note:(document.getElementById("orderNotes")||{}).value||"",source:INTERNAL?"internal":"web",dueDate:REP_DUE||"",
+        quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,certWaive:CERT_WAIVED,note:orderNotesText(),source:INTERNAL?"internal":"web",dueDate:REP_DUE||"",
         returnUrl:document.referrer||location.href})});
     const data=await r.json().catch(()=>({}));
     if(data.url){ try{window.top.location.href=data.url;}catch(e){window.location.href=data.url;} return; }
@@ -1496,6 +1523,7 @@ function orderConfirmed(msg){
   try{ box.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){}
 }
 async function submitPO(approved){
+  syncNotesFromDOM();
   if(!quotable()) return;
   if(!validEmail()) return;
   const po=(v("cPO")||"").trim();
@@ -1527,7 +1555,7 @@ async function submitPO(approved){
         zip:v("sZip"), shipSpeed:shipSpeed(),
         carrier:(shipSpeed()==="account")?v("sCarrier"):"", shipAccount:(shipSpeed()==="account")?v("sAcct"):"",
         shipAddress:(shipSpeed()==="pickup")?"Pickup at 3DPX (Chicago, IL)":[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "),
-        matCert:document.getElementById("matCert").checked,quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,note:(document.getElementById("orderNotes")||{}).value||"",source:INTERNAL?"internal":"web",dueDate:REP_DUE||""})});
+        matCert:document.getElementById("matCert").checked,quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,certWaive:CERT_WAIVED,note:orderNotesText(),source:INTERNAL?"internal":"web",dueDate:REP_DUE||""})});
     const data=await r.json().catch(()=>({}));
     if(data.ok){
       const msg=approved
@@ -1583,6 +1611,7 @@ const _URLP=new URLSearchParams(location.search);
 const INTERNAL=_URLP.has("internal");
 const INTERNAL_TOKEN=_URLP.get("internal")||"1";
 async function saveQuote(){
+  syncNotesFromDOM();
   if(!quotable()){alert("Add a part or enter engineering hours first.");return;}
   const btn=document.getElementById("saveQuoteBtn"),orig=btn.textContent;btn.disabled=true;btn.textContent="Saving…";
   const id=LOADED_QUOTE_ID||("Q-"+Math.random().toString(36).slice(2,8).toUpperCase());  // reuse id when editing a loaded quote → same customer link updates
@@ -1596,7 +1625,7 @@ async function saveQuote(){
       body:JSON.stringify({token:INTERNAL_TOKEN,id,
         parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,vsPrice:(+p.vsPrice>0)?+p.vsPrice:null,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,inspect:!!p.inspect,inspQty:+p.inspQty||1,notes:String(p.notes||"").slice(0,600),drawingName:p.drawingName||"",file:p.fileName||"",thumb:p.thumb||"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
-        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,note:(document.getElementById("orderNotes")||{}).value||"",dueDate:REP_DUE||"",total:orderTotals().total,origin:location.origin,source:INTERNAL?"internal":"web",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
+        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,certWaive:CERT_WAIVED,note:orderNotesText(),dueDate:REP_DUE||"",total:orderTotals().total,origin:location.origin,source:INTERNAL?"internal":"web",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
     const data=await r.json().catch(()=>({}));
     if(data.ok){
       LOADED_QUOTE_ID=data.id;
@@ -1656,7 +1685,7 @@ async function loadQuote(id){
     const r=await fetch("/.netlify/functions/get-quote?id="+encodeURIComponent(id));
     const data=await r.json().catch(()=>({}));
     if(!data.ok||!data.quote)return;
-    const q=data.quote;LOADED_QUOTE_ID=q.id;ADDL_DISC=Math.max(0,+q.addlDisc||0);ENG_HOURS=Math.max(0,+q.engHours||0);REP_DUE=q.dueDate||"";TAX_EXEMPT=!!q.taxExempt;{const te=document.getElementById("taxExempt");if(te)te.checked=TAX_EXEMPT;}
+    const q=data.quote;LOADED_QUOTE_ID=q.id;ADDL_DISC=Math.max(0,+q.addlDisc||0);ENG_HOURS=Math.max(0,+q.engHours||0);REP_DUE=q.dueDate||"";TAX_EXEMPT=!!q.taxExempt;{const te=document.getElementById("taxExempt");if(te)te.checked=TAX_EXEMPT;}CERT_WAIVED=!!q.certWaive;{const cw=document.getElementById("certWaive");if(cw)cw.checked=CERT_WAIVED;}
     {const pr=resolvePromo(q.promo||"");PROMO_CODE=pr.pct>0?pr.code:"";PROMO_PCT=pr.pct;const pel=document.getElementById("promoCode");if(pel){pel.value=PROMO_CODE;}}
     const set=(k,val)=>{const el=document.getElementById(k);if(el&&val!=null&&val!=="")el.value=val;};
     if(q.cust){set("cName",q.cust.name);set("cCo",q.cust.company);set("cEmail",q.cust.email);set("cPhone",q.cust.phone);}
@@ -1684,6 +1713,7 @@ if(INTERNAL){
   const eh=document.getElementById("engHours");if(eh)eh.addEventListener("input",()=>{ENG_HOURS=Math.max(0,parseFloat(eh.value)||0);render();});
   const rdue=document.getElementById("repDue");if(rdue)rdue.addEventListener("change",()=>{REP_DUE=rdue.value||"";render();});
   const tex=document.getElementById("taxExempt");if(tex)tex.addEventListener("change",()=>{TAX_EXEMPT=tex.checked;render();});
+  const cwv=document.getElementById("certWaive");if(cwv)cwv.addEventListener("change",()=>{CERT_WAIVED=cwv.checked;render();});
   const dh=document.getElementById("detailsHeading");if(dh)dh.textContent="2 · Customer details";
   {const n=document.getElementById("cName");if(n)n.placeholder="Customer name";const e=document.getElementById("cEmail");if(e)e.placeholder="customer@company.com";}
   const sb=document.getElementById("saveQuoteBtn");if(sb){sb.style.display="";sb.onclick=saveQuote;}

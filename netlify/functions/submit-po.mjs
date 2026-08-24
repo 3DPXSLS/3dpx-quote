@@ -143,12 +143,14 @@ export default async (req) => {
   for (const p of parts) { if (p.ov != null) delete p.ov; if (p.vsp != null) delete p.vsp; }  // never trust client-supplied override / VS price
   let addlDisc = Math.max(0, +body.addlDisc || 0);
   let engHours = Math.max(0, +body.engHours || 0);
+  let certWaive = false;  // rep-only; waives the material-cert fee (authoritative from the saved quote)
+  let taxExemptQ = !!body.taxExempt;
   if (body.quoteId && /^Q-[A-Za-z0-9]{4,12}$/.test(body.quoteId)) {
-    try { const { getStore } = await import("@netlify/blobs"); const q = await getStore("orders").get("Q-QUOTES/" + body.quoteId + ".json", { type: "json" }); if (q && typeof q.addlDisc === "number") addlDisc = Math.max(0, q.addlDisc); if (q && typeof q.engHours === "number") engHours = Math.max(0, q.engHours); if (q && Array.isArray(q.parts)) q.parts.forEach((qp, i) => { if (parts[i] && qp && +qp.override > 0) parts[i].ov = +qp.override; if (parts[i] && qp && +qp.vsPrice > 0) parts[i].vsp = +qp.vsPrice; }); } catch (e) {}
+    try { const { getStore } = await import("@netlify/blobs"); const q = await getStore("orders").get("Q-QUOTES/" + body.quoteId + ".json", { type: "json" }); if (q && typeof q.addlDisc === "number") addlDisc = Math.max(0, q.addlDisc); if (q && typeof q.engHours === "number") engHours = Math.max(0, q.engHours); if (q && typeof q.certWaive === "boolean") certWaive = q.certWaive; if (q && typeof q.taxExempt === "boolean") taxExemptQ = q.taxExempt; if (q && Array.isArray(q.parts)) q.parts.forEach((qp, i) => { if (parts[i] && qp && +qp.override > 0) parts[i].ov = +qp.override; if (parts[i] && qp && +qp.vsPrice > 0) parts[i].vsp = +qp.vsPrice; }); } catch (e) {}
   }
   if (!parts.length && !(engHours > 0)) return json({ error: "No parts or engineering services in order." }, 400);
   const promoPct = PROMO[String(body.promo||"").trim().toUpperCase()] || 0;
-  const price = orderTotal(parts, body.region, !!body.matCert, speed, body.zip, addlDisc, promoPct, engHours*RULES.engRate);
+  const price = orderTotal(parts, body.region, (!!body.matCert && !certWaive), speed, body.zip, addlDisc, promoPct, engHours*RULES.engRate);
   const totalParts = parts.reduce((s,p)=>s+(Math.max(1,parseInt(p.qty)||1)),0);
   const totalVol   = Math.round(parts.reduce((s,p)=>s+(p.vol||0)*(Math.max(1,parseInt(p.qty)||1)),0)*100)/100;
   const dyeAny   = parts.some(p=>p.dye);
@@ -170,7 +172,7 @@ export default async (req) => {
   const engTxt = engHours > 0 ? ("Engineering services " + engHours + "h @ $" + RULES.engRate + "/hr") : "";
   const detail = [summary, engTxt].filter(Boolean).join(" | ") || "(no parts)";
   const custNote = String(body.note || "").trim();
-  const notes = (notesPrefix + " | " + detail + " | " + shipMethod + (body.matCert?" | Material cert":"") + (body.taxExempt?" | TAX EXEMPT":"") + (custNote?(" | Customer note: " + custNote):"")).slice(0, 495);
+  const notes = (notesPrefix + " | " + detail + " | " + shipMethod + (body.matCert?(certWaive?" | Material cert (fee waived)":" | Material cert"):"") + (taxExemptQ?" | TAX EXEMPT":"") + (custNote?(" | Customer note: " + custNote):"")).slice(0, 495);
 
   const contactVal = (body.name || "") + (body.email ? " <" + body.email + ">" : "");
   const due = /^\d{4}-\d{2}-\d{2}$/.test(String(body.dueDate||"")) ? body.dueDate : addBusinessDays(new Date(), leadDaysCalc(parts)).toISOString().slice(0,10);
