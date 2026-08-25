@@ -299,7 +299,7 @@
       <div class="repcol">
         <div class="rtitle">1 · Send a quote</div>
         <button class="ract primary" data-do="saveQuoteBtn"><b>Save &amp; send to customer</b><span class="rd">Saves the quote and gives you a customer link + one-click edit link; downloads the quote PDF to attach.</span></button>
-        <button class="ract" data-do="dlBtn"><b>Download PDF</b><span class="rd">Customer-facing quote PDF (with part thumbnails).</span></button>
+        <button class="ract" data-do="dlBtn"><b>Download PDF</b><span class="rd">Branded quote PDF to send to the customer (with part thumbnails).</span></button>
       </div>
       <div class="repcol">
         <div class="rtitle">2 · Place an order</div>
@@ -309,7 +309,7 @@
       </div>
       <div class="repcol">
         <div class="rtitle">3 · Documents</div>
-        <button class="ract" data-do="quoteBtn"><b>Preview quote</b><span class="rd">Download the internal attached quote PDF (columnar, no thumbnails).</span></button>
+        <button class="ract" data-do="quoteBtn"><b>Preview quote</b><span class="rd">The internal/record copy of the quote (same branded PDF, with thumbnails).</span></button>
         <button class="ract" data-do="travBtn"><b>Preview traveler</b><span class="rd">Download the per-part production traveler.</span></button>
         <button class="ract" data-do="packBtn"><b>Preview packing slip</b><span class="rd">Download the customer packing slip.</span></button>
       </div>
@@ -1200,14 +1200,18 @@ function v(id){return document.getElementById(id).value;}
 /* ---- actions ---- */
 function validEmail(){const e=v("cEmail");if(!e||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)){alert("Please enter a valid email so we can send your quote.");return false;}return true;}
 
+/* Customer-facing "Download PDF": generate the branded jsPDF quote directly (real vector fills +
+   embedded thumbnails). This renders identically on every machine and doesn't depend on the browser
+   print dialog's "Background graphics" setting, so the PDF a rep emails always looks polished. */
 document.getElementById("dlBtn").onclick=async ()=>{
   if(!validEmail())return;
   const qn=quoteNum();
+  const doc=buildQuotePDF(qn,{po:(v("cPO")||"").trim()||null});
+  if(doc){ doc.save("3DPX-Quote-"+qn+".pdf"); return; }
+  // Fallback (jsPDF unavailable): the older browser-print quote.
   const pa=document.getElementById("printArea");
   pa.innerHTML=buildQuoteDoc(qn);
   document.title="3DPX Quote "+qn;
-  // Render the quote OFF-SCREEN but visible (not display:none) so every thumbnail actually loads
-  // and decodes; on big quotes, printing a display:none area drops images that haven't decoded yet.
   const prev=pa.getAttribute("style")||"";
   pa.style.cssText="display:block;position:fixed;left:-100000px;top:0;width:780px;background:#fff;z-index:-1";
   const imgs=[...pa.querySelectorAll("img")];
@@ -1215,7 +1219,7 @@ document.getElementById("dlBtn").onclick=async ()=>{
     : new Promise(res=>{ im.addEventListener("load",res,{once:true}); im.addEventListener("error",res,{once:true}); setTimeout(res,6000); })));
   try{ await Promise.all(imgs.map(im=> im.decode?im.decode().catch(()=>{}):Promise.resolve())); }catch(e){}
   await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-  pa.setAttribute("style",prev);   // restore (screen: hidden; @media print shows it) — images stay decoded
+  pa.setAttribute("style",prev);
   window.print();
 };
 /* Email-quote button removed — 3DPX does not email quotes (use Download PDF / Save & send). */
