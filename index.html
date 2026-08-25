@@ -1455,11 +1455,14 @@ async function uploadManifest(orderNo){
    silently if the rep hasn't already, so internal Order&pay / PO / approved orders honor the override. */
 async function ensureQuoteSaved(){
   syncNotesFromDOM();
-  if(LOADED_QUOTE_ID) return LOADED_QUOTE_ID;
-  if(!INTERNAL || !quotable()) return "";
+  // Reps: ALWAYS re-save (edit-in-place on the same id) so the server-side authoritative copy matches
+  // what's on screen right now. Without this, ticking Tax exempt / Waive cert fee AFTER a quote was
+  // already saved would be ignored at checkout and the customer would still be charged.
+  if(LOADED_QUOTE_ID && !INTERNAL) return LOADED_QUOTE_ID;
+  if(!INTERNAL || !quotable()) return LOADED_QUOTE_ID||"";
   try{
     const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({token:INTERNAL_TOKEN,
+      body:JSON.stringify({token:INTERNAL_TOKEN,id:LOADED_QUOTE_ID||undefined,
         parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,vsPrice:(+p.vsPrice>0)?+p.vsPrice:null,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,inspect:!!p.inspect,inspQty:+p.inspQty||1,notes:String(p.notes||"").slice(0,600),drawingName:p.drawingName||"",file:p.fileName||"",thumb:"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
         matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,certWaive:CERT_WAIVED,note:orderNotesText(),dueDate:REP_DUE||"",total:orderTotals().total,origin:location.origin,source:INTERNAL?"internal":"web",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
@@ -1668,7 +1671,7 @@ async function customerSaveQuote(){
       body:JSON.stringify({id,
         parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,vsPrice:(+p.vsPrice>0)?+p.vsPrice:null,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,inspect:!!p.inspect,inspQty:+p.inspQty||1,notes:String(p.notes||"").slice(0,600),drawingName:p.drawingName||"",file:p.fileName||"",thumb:p.thumb||"",manual:!!p.manual})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
-        matCert:document.getElementById("matCert").checked,promo:PROMO_CODE,total:orderTotals().total,origin:location.origin,source:"web",name:v("cName"),company:v("cCo"),email:email,phone:v("cPhone")})});
+        matCert:document.getElementById("matCert").checked,promo:PROMO_CODE,note:orderNotesText(),total:orderTotals().total,origin:location.origin,source:"web",name:v("cName"),company:v("cCo"),email:email,phone:v("cPhone")})});
     const data=await r.json().catch(()=>({}));
     if(data.ok){
       const link=location.origin+"/?quote="+data.id;
@@ -1701,7 +1704,14 @@ async function loadQuote(id){
       b.innerHTML="📋 <b>Your 3DPX quote is ready.</b> Review the parts below, then choose how to order — pay securely by card or submit a PO. Pricing as quoted; we confirm on final review.";}
     if(window.THREE){ for(let i=0;i<parts.length;i++){const p=parts[i];
       try{ const rr=await fetch("/.netlify/functions/get-quote-file?id="+encodeURIComponent(q.id)+"&i="+i);
-        if(!rr.ok) continue; const buf=await rr.arrayBuffer(); const pr=parseSTL(buf);
+        if(!rr.ok) continue; const buf=await rr.arrayBuffer();
+        let pr=null;
+        try{ pr=parseSTL(buf); }catch(e3){ pr=null; }
+        // STEP parts (.stp/.step) can't be read by parseSTL — re-tessellate them so reopened quotes
+        // get their geometry (and therefore their traveler/quote thumbnails) back.
+        if((!pr||!pr.count) && /\.(stp|step)$/i.test(p.fileName||"")){
+          try{ const sr=await stepToGeom(buf); if(sr&&sr.count) pr={pos:sr.pos,count:sr.count,areaMM2:sr.areaMM2||0}; }catch(e4){}
+        }
         if(pr&&pr.count){ p.geo=pr.pos; p.area=pr.areaMM2; if(!p.thumb) p.thumb=renderThumb(pr.pos); createViewer(p); }
       }catch(e2){}
     } render(); }

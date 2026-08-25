@@ -39,7 +39,7 @@ export default async (req) => {
 
   const record = {
     id, created: (prev && prev.created) || new Date().toISOString(),
-    parts: parts.map(p => ({
+    parts: parts.map((p, i) => ({
       name: String(p.name || "part").slice(0,120),
       x: +p.x || 0, y: +p.y || 0, z: +p.z || 0, vol: +p.vol || 0,
       qty: Math.max(1, parseInt(p.qty) || 1),
@@ -50,7 +50,12 @@ export default async (req) => {
       notes: String(p.notes || "").slice(0, 600),
       drawingName: p.drawingName ? String(p.drawingName).slice(0,120) : "",
       file: p.file ? String(p.file).slice(0,160) : "",
-      thumb: (p.thumb && String(p.thumb).startsWith("data:image")) ? String(p.thumb).slice(0, 400000) : "",
+      // Never WIPE a stored thumbnail. The silent auto-save at order time sends thumb:"" to keep the
+      // payload small; without this, re-saving an existing quote would blank its previews and the
+      // traveler/quote PDFs would lose their part images (STEP parts can't be re-rendered on reload).
+      thumb: (p.thumb && String(p.thumb).startsWith("data:image"))
+        ? String(p.thumb).slice(0, 400000)
+        : ((prev && prev.parts && prev.parts[i] && prev.parts[i].thumb) || ""),
       override: authed && (+p.override > 0) ? +p.override : null,   // rep-only; stripped from public saves
       vsPrice: authed && (+p.vsPrice > 0) ? +p.vsPrice : null,      // rep-only hard-coded vapor-smooth price
       manual: !!p.manual,
