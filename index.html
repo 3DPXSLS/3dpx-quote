@@ -146,7 +146,11 @@
   .specsbody b{color:var(--navy)}
   /* print = the branded PDF quote */
   #printArea{display:none}
+  /* Force background colors/images to survive print-to-PDF (browsers drop them by default, which
+     washed out the navy "Estimated total" box, the header band, and the green discount accents). */
+  #printArea,#printArea *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important;}
   @media print{
+    html,body{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}
     body>*{display:none !important}
     #printArea{display:block !important;position:static;width:100%}
     @page{margin:14mm}
@@ -653,6 +657,19 @@ function partChecks(p){
 
 /* ---- 3D thumbnail renderer (Three.js, shared offscreen context) ---- */
 let _r3d,_scene3,_cam3,_mesh3,_mat3;
+/* Browsers cap live WebGL contexts (~16). Each part card opens its own, so a big order (38 parts)
+   exhausts them and the SHARED thumbnail renderer's context gets killed — after which every
+   renderThumb() returns an all-black canvas. That's what blanked pages 17+ of a 38-part traveler.
+   Detect a dead context and rebuild the renderer. */
+function thumbCtxLost(){
+  try{ if(!_r3d) return false; const gl=_r3d.getContext&&_r3d.getContext(); return !gl||(gl.isContextLost&&gl.isContextLost()); }
+  catch(e){ return true; }
+}
+function resetThumbRenderer(){
+  try{ if(_r3d){ _r3d.dispose&&_r3d.dispose(); } }catch(e){}
+  _r3d=null;_scene3=null;_cam3=null;_mat3=null;_mesh3=null;
+  initThumb();
+}
 function initThumb(){
   if(_r3d||!window.THREE)return;
   _r3d=new THREE.WebGLRenderer({antialias:true,alpha:true,preserveDrawingBuffer:true});
@@ -668,6 +685,7 @@ function renderThumb(pos,p,dark){
   if(!window.THREE)return null;
   try{
     initThumb();
+    if(thumbCtxLost()) resetThumbRenderer();   // context was killed by too many live viewers — rebuild it
     // dark = force a high-contrast dark render (used on travelers, so white/natural parts don't wash out)
     if(dark){_mat3.color.set(0x1b2a4a);_mat3.shininess=8;if(_mat3.specular)_mat3.specular.set(0x0a0f18);_mat3.needsUpdate=true;}
     else if(p){applyFinish(_mat3,p);}else{_mat3.color.set(0x33415c);_mat3.shininess=18;if(_mat3.specular)_mat3.specular.set(0x111111);_mat3.needsUpdate=true;}
@@ -703,8 +721,13 @@ function applyFinish(mat,p){if(!mat||!mat.color)return;
   mat.shininess=p.vs?60:5;
   if(mat.specular)mat.specular.set(p.vs?0x6a6a6a:0x141414);
   mat.needsUpdate=true;}
+const MAX_LIVE_VIEWERS=8;   // stay well under the browser's WebGL context cap (~16)
+function liveViewerCount(){let n=0;for(const k in viewers){if(k!=="__lb")n++;}return n;}
 function createViewer(part){
   if(!window.THREE||!part.geo)return;
+  // Past the cap, the part card falls back to its static thumbnail (still click-to-enlarge), so the
+  // shared thumbnail renderer keeps its context and every traveler page gets a real image.
+  if(liveViewerCount()>=MAX_LIVE_VIEWERS)return;
   const canvas=document.createElement("canvas");canvas.width=300;canvas.height=300;
   const r=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});r.setPixelRatio(1);r.setSize(300,300,false);
   const scene=new THREE.Scene();const cam=new THREE.PerspectiveCamera(33,1,0.1,100000);
@@ -940,7 +963,7 @@ function render(){
       <div class="top">
         <div style="display:flex;gap:12px;align-items:flex-start;min-width:0">
           <div class="lineno">${i+1}</div>
-          ${window.THREE&&p.geo?`<div class="viewwrap"><div class="viewslot" data-view="${p.id}" title="Drag to rotate"></div><div class="viewhint">↻ drag · <a href="#" data-expand="${p.id}" style="color:inherit;text-decoration:underline;cursor:pointer">⤢ enlarge</a></div></div>`:(p.thumb?`<img class="thumb" src="${p.thumb}" alt="3D preview of ${esc(p.name)}" data-expand="${p.id}" title="Click to enlarge" style="cursor:zoom-in">`:"")}
+          ${(window.THREE&&p.geo&&viewers[p.id])?`<div class="viewwrap"><div class="viewslot" data-view="${p.id}" title="Drag to rotate"></div><div class="viewhint">↻ drag · <a href="#" data-expand="${p.id}" style="color:inherit;text-decoration:underline;cursor:pointer">⤢ enlarge</a></div></div>`:(p.thumb?`<div class="viewwrap"><img class="thumb" src="${p.thumb}" alt="3D preview of ${esc(p.name)}" data-expand="${p.id}" title="Click to enlarge" style="cursor:zoom-in"><div class="viewhint"><a href="#" data-expand="${p.id}" style="color:inherit;text-decoration:underline;cursor:pointer">⤢ enlarge</a></div></div>`:"")}
           <div style="min-width:0"><div class="nm">${esc(p.name)}</div>
           <div class="dims">${isMan?`STEP file · qty <b>${p.qty}</b> · <span class="save">manual quote</span>${(p.override>0)?` · <span class="save">custom $</span>`:""}`:`${p.x}×${p.y}×${p.z} mm · ${p.vol} cm³ · qty <b>${p.qty}</b>${c.fixed?` · <span class="save">custom $</span>`:`${c.qp>0?` · <span class="save">${c.qp}% qty</span>`:""}${_valPct>0?` · <span class="save">${_valPct}% order</span>`:""}${_addlPct>0?` · <span class="save">${_addlPct}% add&#39;l</span>`:""}${_t0.promoApplied?` · <span class="save">${_t0.promoPct}% promo</span>`:""}`}`}</div>
           ${isMan?`<div class="dims" style="opacity:.7;margin-top:1px">Awaiting manual measurement — ${oversized(p)?"file too large to upload, please email it":"STEP attached for review"}</div>`:`<div class="dims" style="opacity:.7;margin-top:1px">${(p.x/25.4).toFixed(2)}×${(p.y/25.4).toFixed(2)}×${(p.z/25.4).toFixed(2)} in · ${(p.vol*0.0610237).toFixed(2)} in³</div>`}</div>
@@ -1366,16 +1389,23 @@ function buildQuotePDF(orderNo,opts){
   const meta=[["Quote #",orderNo],["Date",orderDate],["Valid","30 days"]]; if(opts.po)meta.push(["PO",opts.po]);
   let my=y; meta.forEach(m=>{doc.setFont("helvetica","bold");doc.text(m[0],W-M-150,my);doc.setFont("helvetica","normal");doc.text(String(m[1]),W-M,my,{align:"right"});my+=14;});
   y=Math.max(py,my)+8;
-  const engRowPdf=t.eng>0?[["","Engineering services","Engineering / design services · "+money(RULES.engRate)+"/hr",t.engHours+" hr",money(RULES.engRate),money(t.eng),money(t.eng)]]:[];
+  const engRowPdf=t.eng>0?[["","","Engineering services","Engineering / design services · "+money(RULES.engRate)+"/hr",t.engHours+" hr",money(RULES.engRate),money(t.eng),money(t.eng)]]:[];
   const partRows=parts.map((p,i)=>{const c=lineCalc(p);const ldf=lineFactor(c,t);const clr=p.dye?COLORS[partColor(p)].label:"White (Natural)";
     const desc="SLS · Nylon 12 (PA12) · "+(p.dye?("Dyed "+clr):"White (Natural)")+(p.vs?(" · Vapor smoothed (+"+money(vsAmount(p))+"/pc)"):"")+(p.tumble?" · Tumbled":"")+(insertCount(p)?(" · "+insertCount(p)+" inserts"):"")+(tapCount(p)?(" · "+tapCount(p)+" tapped"):"")+(inspCount(p)?(" · "+inspCount(p)+"-pt inspection"):"")+(c.manual?" · quote pending":"")+(p.notes?(" · Note: "+p.notes):"");
     const listUnit=c.manual?"—":money(c.list), listLine=c.manual?"—":money(c.lineList), discUnit=c.manual?"quote pending":money(c.net*ldf);
-    return ["",p.name,desc,String(p.qty),listUnit,listLine,discUnit];});
+    return ["","",p.name,desc,String(p.qty),listUnit,listLine,discUnit];});
   const rows=engRowPdf.concat(partRows); rows.forEach((r,i)=>r[0]=String(i+1));
-  doc.autoTable({startY:y,head:[["#","Item","Description","Qty","Unit price","Line total","Disc. unit"]],body:rows,
+  const rowThumbs=(t.eng>0?[null]:[]).concat(parts.map(p=>p.thumb||null));  // aligned to body rows
+  doc.autoTable({startY:y,head:[["#","","Item","Description","Qty","Unit price","Line total","Disc. unit"]],body:rows,
     theme:"grid",styles:{fontSize:9,cellPadding:5,textColor:INK,lineColor:[210,216,226],valign:"middle"},
     headStyles:{fillColor:NAVY,textColor:[255,255,255],fontStyle:"bold",halign:"center"},
-    columnStyles:{0:{cellWidth:22,halign:"center"},1:{cellWidth:118},2:{cellWidth:CW-356,halign:"left",fontSize:8},3:{cellWidth:34,halign:"center"},4:{cellWidth:58,halign:"right"},5:{cellWidth:60,halign:"right"},6:{cellWidth:64,halign:"right",textColor:[30,158,106],fontStyle:"bold"}},
+    columnStyles:{0:{cellWidth:20,halign:"center"},1:{cellWidth:46,halign:"center"},2:{cellWidth:104},3:{cellWidth:CW-386,halign:"left",fontSize:8},4:{cellWidth:34,halign:"center"},5:{cellWidth:58,halign:"right"},6:{cellWidth:60,halign:"right"},7:{cellWidth:64,halign:"right",textColor:[30,158,106],fontStyle:"bold"}},
+    didParseCell:function(d){ if(d.section==="body"&&d.column.index===1&&rowThumbs[d.row.index]){ d.cell.styles.minCellHeight=42; } },
+    didDrawCell:function(d){
+      if(d.section!=="body"||d.column.index!==1) return;
+      const th=rowThumbs[d.row.index]; if(!th) return;
+      try{ const s=Math.min(d.cell.width-4,d.cell.height-4); const ix=d.cell.x+(d.cell.width-s)/2; const iy=d.cell.y+(d.cell.height-s)/2; doc.addImage(th,"PNG",ix,iy,s,s); }catch(e){}
+    },
     margin:{left:M,right:M}});
   {const on=orderNotesText();
    if(on.trim())doc.autoTable({startY:doc.lastAutoTable.finalY+10,head:[["Order notes"]],body:[[on]],theme:"grid",styles:{fontSize:9,cellPadding:5,textColor:INK,lineColor:[210,216,226],halign:"left"},headStyles:{fillColor:HEAD,textColor:NAVY,fontStyle:"bold",halign:"left"},margin:{left:M,right:M},tableWidth:CW});}
