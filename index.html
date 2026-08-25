@@ -1085,8 +1085,15 @@ function syncNotesFromDOM(){
   }catch(e){}
 }
 function orderNotesText(){const el=document.getElementById("orderNotes");return el?(el.value||""):"";}
+/* Make sure every part that HAS geometry also has a stored thumbnail. The quote PDF/table draws from
+   p.thumb only, so a part whose thumb was never set (or was blanked by an auto-save) would print with
+   no image even though we can render one. Cheap: only fills in what's missing. */
+function ensureThumbs(){
+  if(!window.THREE) return;
+  try{ parts.forEach(p=>{ if(!p.thumb && p.geo){ const t=renderThumb(p.geo,p); if(t) p.thumb=t; } }); }catch(e){}
+}
 function buildQuoteDoc(qn){
-  syncNotesFromDOM();
+  syncNotesFromDOM();ensureThumbs();
   const t=orderTotals();
   const engRow=t.eng>0?`<tr style="background:#fff7f0">
     <td style="padding:8px 6px;border-bottom:1px solid #eef2f8"><span style="font-weight:600">Engineering services</span></td>
@@ -1233,7 +1240,7 @@ function genOrderNo(){if(PREVIEW_ORDER_NO)return PREVIEW_ORDER_NO;const d=new Da
 /* ---- Production traveler PDF (per part) — auto-attached to the SLS Jobs order ---- */
 function estDueDate(days){const r=new Date();let a=0;while(a<days){r.setDate(r.getDate()+1);const d=r.getDay();if(d!==0&&d!==6)a++;}return r.toLocaleDateString("en-US");}
 function buildTravelerPDF(orderNo,opts){
-  syncNotesFromDOM();
+  syncNotesFromDOM();ensureThumbs();
   opts=opts||{};
   const JS=window.jspdf&&window.jspdf.jsPDF; if(!JS||!parts.length) return null;
   const doc=new JS({unit:"pt",format:"letter"}); if(typeof doc.autoTable!=="function") return null;
@@ -1290,7 +1297,7 @@ async function uploadTraveler(orderNo,opts){
 /* ---- Packing slip PDF (customer-facing, no prices) — auto-attached to the order ---- */
 function buildPackingSlipPDF(orderNo,opts){
   opts=opts||{};
-  syncNotesFromDOM();
+  syncNotesFromDOM();ensureThumbs();
   const JS=window.jspdf&&window.jspdf.jsPDF; if(!JS||!parts.length) return null;
   const doc=new JS({unit:"pt",format:"letter"}); if(typeof doc.autoTable!=="function") return null;
   const NAVY=[27,42,74],ORANGE=[242,106,33],HEAD=[238,242,248],INK=[27,35,48],GREY=[90,102,120];
@@ -1341,7 +1348,7 @@ async function uploadPackingSlip(orderNo,opts){
 /* ---- Quote PDF (with prices) — auto-attached to the order ---- */
 function buildQuotePDF(orderNo,opts){
   opts=opts||{};
-  syncNotesFromDOM();
+  syncNotesFromDOM();ensureThumbs();
   const JS=window.jspdf&&window.jspdf.jsPDF; if(!JS||!quotable()) return null;
   const doc=new JS({unit:"pt",format:"letter"}); if(typeof doc.autoTable!=="function") return null;
   const NAVY=[27,42,74],ORANGE=[242,106,33],HEAD=[238,242,248],INK=[27,35,48],GREY=[90,102,120];
@@ -1454,7 +1461,7 @@ async function uploadManifest(orderNo){
    (the server reads pricing authoritatively from the quote, never from the browser). Auto-saves one
    silently if the rep hasn't already, so internal Order&pay / PO / approved orders honor the override. */
 async function ensureQuoteSaved(){
-  syncNotesFromDOM();
+  syncNotesFromDOM();ensureThumbs();
   // Reps: ALWAYS re-save (edit-in-place on the same id) so the server-side authoritative copy matches
   // what's on screen right now. Without this, ticking Tax exempt / Waive cert fee AFTER a quote was
   // already saved would be ignored at checkout and the customer would still be charged.
@@ -1472,7 +1479,7 @@ async function ensureQuoteSaved(){
   return "";
 }
 async function startPayment(){
-  syncNotesFromDOM();
+  syncNotesFromDOM();ensureThumbs();
   if(!quotable()) return;
   if(!validEmail()) return;
   const btn=document.getElementById("payBtn"), orig=btn.textContent;
@@ -1526,7 +1533,7 @@ function orderConfirmed(msg){
   try{ box.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){}
 }
 async function submitPO(approved){
-  syncNotesFromDOM();
+  syncNotesFromDOM();ensureThumbs();
   if(!quotable()) return;
   if(!validEmail()) return;
   const po=(v("cPO")||"").trim();
@@ -1614,7 +1621,7 @@ const _URLP=new URLSearchParams(location.search);
 const INTERNAL=_URLP.has("internal");
 const INTERNAL_TOKEN=_URLP.get("internal")||"1";
 async function saveQuote(){
-  syncNotesFromDOM();
+  syncNotesFromDOM();ensureThumbs();
   if(!quotable()){alert("Add a part or enter engineering hours first.");return;}
   const btn=document.getElementById("saveQuoteBtn"),orig=btn.textContent;btn.disabled=true;btn.textContent="Saving…";
   const id=LOADED_QUOTE_ID||("Q-"+Math.random().toString(36).slice(2,8).toUpperCase());  // reuse id when editing a loaded quote → same customer link updates
