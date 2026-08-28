@@ -1488,8 +1488,15 @@ function buildInventoryPDF(orderNo,opts){
   doc.setFontSize(12);doc.text(due,bx+bw-10,byy+18,{align:"right"});
   y=Math.max(py,byy+bh)+10;
   const rows=parts.map((p,i)=>{const clr=p.dye?COLORS[partColor(p)].label:"White (Natural)";
-    const spec="SLS · Nylon 12 (PA12) · "+(p.dye?("Dyed "+clr):"White (Natural)")+(p.vs?" · Vapor smoothed":"")+(p.tumble?" · Tumbled":"")+(insertCount(p)?(" · "+insertCount(p)+" inserts"):"")+(tapCount(p)?(" · "+tapCount(p)+" tapped"):"")+(inspCount(p)?(" · "+inspCount(p)+"-pt inspection"):"")+" · "+p.x+"×"+p.y+"×"+p.z+" mm"+(p.notes?("\nNote: "+p.notes):"");
-    return [String(i+1),"",p.name,spec,String(p.qty)];});
+    const L=["• SLS · Nylon 12 (PA12)","• Color: "+(p.dye?("Dyed "+clr):"White (Natural)")];
+    if(p.vs)L.push("• Vapor smoothed");
+    if(p.tumble)L.push("• Tumbled");
+    if(insertCount(p))L.push("• Threaded inserts: "+insertCount(p));
+    if(tapCount(p))L.push("• Tapped holes: "+tapCount(p));
+    if(inspCount(p))L.push("• Inspection: "+inspCount(p)+" pt"+(inspCount(p)===1?"":"s"));
+    L.push("• Size: "+p.x+" × "+p.y+" × "+p.z+" mm");
+    if(p.notes)L.push("• Note: "+p.notes);
+    return [String(i+1),"",p.name,L.join("\n"),String(p.qty)];});
   const rowThumbs=parts.map(p=>p.thumb||null);
   const totalPieces=parts.reduce((s,p)=>s+(parseInt(p.qty)||1),0);
   doc.autoTable({startY:y,head:[["#","","Part","Process / finishing / size","Qty"]],
