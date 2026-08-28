@@ -288,6 +288,7 @@
         <button class="btn ghost" id="travBtn" style="display:none" title="Local preview of the production traveler">Preview traveler</button>
         <button class="btn ghost" id="packBtn" style="display:none" title="Local preview of the packing slip">Preview pack slip</button>
         <button class="btn ghost" id="quoteBtn" style="display:none" title="Local preview of the quote">Preview quote</button>
+        <button class="btn ghost" id="invBtn" style="display:none" title="Production inventory list (thumbnails + qty + finishing + due date)">Preview inventory list</button>
         <button class="btn orange" id="saveQuoteBtn" style="display:none" title="Save this quote and get a customer link">Save &amp; send to customer</button>
       </div>
     </div>
@@ -311,6 +312,7 @@
         <div class="rtitle">3 · Documents</div>
         <button class="ract" data-do="quoteBtn"><b>Preview quote</b><span class="rd">The internal/record copy of the quote (same branded PDF, with thumbnails).</span></button>
         <button class="ract" data-do="travBtn"><b>Preview traveler</b><span class="rd">Download the per-part production traveler.</span></button>
+        <button class="ract" data-do="invBtn"><b>Preview inventory list</b><span class="rd">One-page production sheet: thumbnail, finishing, qty &amp; due date for the whole order.</span></button>
         <button class="ract" data-do="packBtn"><b>Preview packing slip</b><span class="rd">Download the customer packing slip.</span></button>
       </div>
     </div>
@@ -1458,6 +1460,64 @@ async function uploadQuote(orderNo,opts){
     await putFile(orderNo,"quote","quote-"+orderNo+".pdf",doc.output("arraybuffer"));
   }catch(e){}
 }
+/* ---- Inventory List PDF — production floor copy: one page listing the WHOLE order with thumbnail,
+   finishing/spec, and quantity, plus the DUE DATE. No prices. Auto-attached to the order. ---- */
+function buildInventoryPDF(orderNo,opts){
+  opts=opts||{};
+  syncNotesFromDOM();ensureThumbs();
+  const JS=window.jspdf&&window.jspdf.jsPDF; if(!JS||!parts.length) return null;
+  const doc=new JS({unit:"pt",format:"letter"}); if(typeof doc.autoTable!=="function") return null;
+  const NAVY=[27,42,74],ORANGE=[242,106,33],HEAD=[238,242,248],INK=[27,35,48],GREY=[90,102,120];
+  const W=doc.internal.pageSize.getWidth(), M=40, CW=W-2*M;
+  const orderDate=new Date().toLocaleDateString("en-US");
+  const due=REP_DUE?new Date(REP_DUE+"T00:00:00").toLocaleDateString("en-US"):estDueDate(orderLeadDays());
+  doc.setFont("helvetica","bold");doc.setFontSize(15);doc.setTextColor(NAVY[0],NAVY[1],NAVY[2]);
+  doc.text("3DPX ADDITIVE MANUFACTURING",M,46);
+  doc.setFontSize(18);doc.text("INVENTORY LIST",W-M,48,{align:"right"});
+  doc.setDrawColor(ORANGE[0],ORANGE[1],ORANGE[2]);doc.setLineWidth(2);doc.line(M,56,W-M,56);
+  let y=80;
+  doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(GREY[0],GREY[1],GREY[2]);doc.text("CUSTOMER",M,y);
+  doc.setFont("helvetica","normal");doc.setTextColor(INK[0],INK[1],INK[2]);doc.setFontSize(10);
+  let py=y+15;[v("cName"),v("cCo")].filter(Boolean).forEach(l=>{doc.text(l,M,py);py+=13;});
+  const meta=[["Order #",orderNo],["Date",orderDate]]; if(opts.po)meta.push(["PO",opts.po]);
+  let my=y; meta.forEach(m=>{doc.setFont("helvetica","bold");doc.text(m[0],W-M-150,my);doc.setFont("helvetica","normal");doc.text(String(m[1]),W-M,my,{align:"right"});my+=14;});
+  // Due date — big, boxed, top-right so the floor sees it immediately.
+  const bx=W-M-150, bw=150, bh=26, byy=my+2;
+  doc.setFillColor(NAVY[0],NAVY[1],NAVY[2]);doc.roundedRect(bx,byy,bw,bh,5,5,"F");
+  doc.setTextColor(255,255,255);doc.setFont("helvetica","bold");doc.setFontSize(8.5);doc.text("DUE DATE",bx+10,byy+11);
+  doc.setFontSize(12);doc.text(due,bx+bw-10,byy+18,{align:"right"});
+  y=Math.max(py,byy+bh)+10;
+  const rows=parts.map((p,i)=>{const clr=p.dye?COLORS[partColor(p)].label:"White (Natural)";
+    const spec="SLS · Nylon 12 (PA12) · "+(p.dye?("Dyed "+clr):"White (Natural)")+(p.vs?" · Vapor smoothed":"")+(p.tumble?" · Tumbled":"")+(insertCount(p)?(" · "+insertCount(p)+" inserts"):"")+(tapCount(p)?(" · "+tapCount(p)+" tapped"):"")+(inspCount(p)?(" · "+inspCount(p)+"-pt inspection"):"")+" · "+p.x+"×"+p.y+"×"+p.z+" mm"+(p.notes?("\nNote: "+p.notes):"");
+    return [String(i+1),"",p.name,spec,String(p.qty)];});
+  const rowThumbs=parts.map(p=>p.thumb||null);
+  const totalPieces=parts.reduce((s,p)=>s+(parseInt(p.qty)||1),0);
+  doc.autoTable({startY:y,head:[["#","","Part","Process / finishing / size","Qty"]],
+    body:rows,
+    foot:[["","","",{content:"Total: "+parts.length+" part"+(parts.length===1?"":"s"),styles:{halign:"right",fontStyle:"bold"}},{content:String(totalPieces),styles:{halign:"center",fontStyle:"bold"}}]],
+    theme:"grid",styles:{fontSize:9,cellPadding:5,textColor:INK,lineColor:[210,216,226],valign:"middle"},
+    headStyles:{fillColor:NAVY,textColor:[255,255,255],fontStyle:"bold",halign:"center"},
+    footStyles:{fillColor:HEAD,textColor:NAVY},
+    columnStyles:{0:{cellWidth:22,halign:"center"},1:{cellWidth:52,halign:"center"},2:{cellWidth:150},3:{cellWidth:CW-284,halign:"left",fontSize:8.5},4:{cellWidth:60,halign:"center",fontStyle:"bold"}},
+    didParseCell:function(d){ if(d.section==="body"&&d.column.index===1&&rowThumbs[d.row.index]){ d.cell.styles.minCellHeight=48; } },
+    didDrawCell:function(d){
+      if(d.section!=="body"||d.column.index!==1) return;
+      const th=rowThumbs[d.row.index]; if(!th) return;
+      try{ const s=Math.min(d.cell.width-4,d.cell.height-4); const ix=d.cell.x+(d.cell.width-s)/2; const iy=d.cell.y+(d.cell.height-s)/2; doc.addImage(th,"PNG",ix,iy,s,s); }catch(e){}
+    },
+    margin:{left:M,right:M}});
+  let ny=doc.lastAutoTable.finalY+16;
+  {const on=orderNotesText();if(on.trim()){doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(INK[0],INK[1],INK[2]);doc.text("Order notes:",M,ny);doc.setFont("helvetica","normal");doc.setTextColor(GREY[0],GREY[1],GREY[2]);ny+=12;doc.text(on,M,ny,{maxWidth:CW});ny+=6;}}
+  const ph=doc.internal.pageSize.getHeight();
+  doc.setFontSize(8);doc.setTextColor(GREY[0],GREY[1],GREY[2]);doc.setFont("helvetica","normal");
+  doc.text("3DPX Additive Manufacturing  ·  Inventory list  ·  "+orderNo+"  ·  Due "+due,M,ph-24);
+  return doc;
+}
+async function uploadInventory(orderNo,opts){
+  try{ const doc=buildInventoryPDF(orderNo,opts); if(!doc) return;
+    await putFile(orderNo,"inventory","inventory-"+orderNo+".pdf",doc.output("arraybuffer"));
+  }catch(e){}
+}
 let LOADED_QUOTE_ID=null;
 /* Retrying file upload (fixes occasional dropped STL). Returns true on success.
    Files over one chunk are split into <3.5MB pieces (each under Netlify's function-body cap),
@@ -1542,6 +1602,7 @@ async function startPayment(){
   await uploadTraveler(orderNo,{});
   await uploadPackingSlip(orderNo,{});
   await uploadQuote(orderNo,{});
+  await uploadInventory(orderNo,{});
   btn.textContent="Starting checkout…";
   try{
     const r=await fetch(CHECKOUT_URL,{method:"POST",headers:{"Content-Type":"application/json"},
@@ -1602,6 +1663,7 @@ async function submitPO(approved){
   await uploadTraveler(orderNo,{po});
   await uploadPackingSlip(orderNo,{po});
   await uploadQuote(orderNo,{po});
+  await uploadInventory(orderNo,{po});
   btn.textContent=approved?"Creating order…":"Submitting…";
   try{
     const r=await fetch("/.netlify/functions/submit-po",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -1786,6 +1848,7 @@ if(INTERNAL){
   const tb=document.getElementById("travBtn");if(tb){tb.style.display="";tb.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildTravelerPDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});if(d)d.save("traveler-"+genOrderNo()+".pdf");};}
   const pk=document.getElementById("packBtn");if(pk){pk.style.display="";pk.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildPackingSlipPDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});if(d)d.save("packing-slip-"+genOrderNo()+".pdf");};}
   const qbn=document.getElementById("quoteBtn");if(qbn){qbn.style.display="";qbn.onclick=()=>{if(!quotable()){alert("Add a part or enter engineering hours first.");return;}const d=buildQuotePDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});if(d)d.save("quote-"+genOrderNo()+".pdf");};}
+  const ibn=document.getElementById("invBtn");if(ibn){ibn.style.display="";ibn.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildInventoryPDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});if(d)d.save("inventory-"+genOrderNo()+".pdf"); else alert("Generator still loading — try again in a moment.");};}
   // Rep actions panel: labeled buttons that trigger the (now hidden) summary buttons' handlers.
   const rap=document.getElementById("repActions");if(rap)rap.style.display="block";
   document.querySelectorAll("#repActions .ract").forEach(b=>b.onclick=()=>{const t=document.getElementById(b.dataset.do);if(t)t.click();});
