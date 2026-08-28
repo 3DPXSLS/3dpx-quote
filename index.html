@@ -1482,10 +1482,12 @@ function buildInventoryPDF(orderNo,opts){
   const meta=[["Order #",orderNo],["Date",orderDate]]; if(opts.po)meta.push(["PO",opts.po]);
   let my=y; meta.forEach(m=>{doc.setFont("helvetica","bold");doc.text(m[0],W-M-150,my);doc.setFont("helvetica","normal");doc.text(String(m[1]),W-M,my,{align:"right"});my+=14;});
   // Due date — big, boxed, top-right so the floor sees it immediately.
-  const bx=W-M-150, bw=150, bh=26, byy=my+2;
+  const bx=W-M-160, bw=160, bh=28, byy=my+2;
+  const baseline=byy+bh/2+4;   // vertically centered baseline so the label and date sit on the same line
   doc.setFillColor(NAVY[0],NAVY[1],NAVY[2]);doc.roundedRect(bx,byy,bw,bh,5,5,"F");
-  doc.setTextColor(255,255,255);doc.setFont("helvetica","bold");doc.setFontSize(8.5);doc.text("DUE DATE",bx+10,byy+11);
-  doc.setFontSize(12);doc.text(due,bx+bw-10,byy+18,{align:"right"});
+  doc.setTextColor(255,255,255);
+  doc.setFont("helvetica","bold");doc.setFontSize(9);doc.text("DUE DATE",bx+12,baseline);
+  doc.setFontSize(12);doc.text(due,bx+bw-12,baseline,{align:"right"});
   y=Math.max(py,byy+bh)+10;
   const rows=parts.map((p,i)=>{const clr=p.dye?COLORS[partColor(p)].label:"White (Natural)";
     const L=["• SLS · Nylon 12 (PA12)","• Color: "+(p.dye?("Dyed "+clr):"White (Natural)")];
