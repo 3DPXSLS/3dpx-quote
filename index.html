@@ -1263,7 +1263,21 @@ document.querySelectorAll("[data-bulk]").forEach(b=>b.onclick=()=>{const[k,v]=b.
 
 /* ---- Online payment (Stripe Checkout) ---- */
 let PREVIEW_ORDER_NO=null;
-function genOrderNo(){if(PREVIEW_ORDER_NO)return PREVIEW_ORDER_NO;const d=new Date();PREVIEW_ORDER_NO="WEB-"+d.getFullYear()+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0")+"-"+Math.floor(1000+Math.random()*9000);return PREVIEW_ORDER_NO;}
+/* Order numbers are now sequential (WEB-1001, 1002, ...) and assigned by the SERVER so two orders can
+   never collide. genOrderNo() is only for PREVIEW documents (traveler/quote/packing preview) and must
+   NOT consume a real number, so it returns a draft placeholder. allocateOrderNo() (async) fetches the
+   real next number at the moment an order is actually placed. */
+function genOrderNo(){ if(PREVIEW_ORDER_NO) return PREVIEW_ORDER_NO; PREVIEW_ORDER_NO="WEB-PREVIEW"; return PREVIEW_ORDER_NO; }
+async function allocateOrderNo(){
+  if(PREVIEW_ORDER_NO && /^WEB-\d{3,6}$/.test(PREVIEW_ORDER_NO)) return PREVIEW_ORDER_NO;  // already allocated this attempt
+  try{
+    const r=await fetch("/.netlify/functions/next-order-no",{method:"POST"});
+    const d=await r.json().catch(()=>({}));
+    if(d&&d.ok&&/^WEB-\d{3,6}$/.test(d.orderNo||"")){ PREVIEW_ORDER_NO=d.orderNo; return PREVIEW_ORDER_NO; }
+  }catch(e){}
+  PREVIEW_ORDER_NO="WEB-"+Math.floor(1000+Math.random()*9000);  // allocator down → still let the order through
+  return PREVIEW_ORDER_NO;
+}
 /* ---- Production traveler PDF (per part) — auto-attached to the SLS Jobs order ---- */
 function estDueDate(days){const r=new Date();let a=0;while(a<days){r.setDate(r.getDate()+1);const d=r.getDay();if(d!==0&&d!==6)a++;}return r.toLocaleDateString("en-US");}
 function buildTravelerPDF(orderNo,opts){
@@ -1519,7 +1533,7 @@ async function startPayment(){
   const btn=document.getElementById("payBtn"), orig=btn.textContent;
   btn.disabled=true;
   await ensureQuoteSaved();
-  const orderNo=genOrderNo();
+  const orderNo=await allocateOrderNo();
   if(LOADED_QUOTE_ID){try{await fetch("/.netlify/functions/promote-quote",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({orderNo,id:LOADED_QUOTE_ID})});}catch(e){}}
   btn.textContent="Uploading files…";
   const _missed=await uploadOrderFiles(orderNo);
@@ -1574,7 +1588,7 @@ async function submitPO(approved){
   if(!approved && !po){alert("Please enter your PO number to submit a PO order.");document.getElementById("cPO").focus();return;}
   const btn=document.getElementById(approved?"approvedBtn":"poBtn"), orig=btn.textContent; btn.disabled=true;
   await ensureQuoteSaved();
-  const orderNo=genOrderNo();
+  const orderNo=await allocateOrderNo();
   if(LOADED_QUOTE_ID){try{await fetch("/.netlify/functions/promote-quote",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({orderNo,id:LOADED_QUOTE_ID})});}catch(e){}}
   btn.textContent="Uploading files…";
   const _missed=await uploadOrderFiles(orderNo);

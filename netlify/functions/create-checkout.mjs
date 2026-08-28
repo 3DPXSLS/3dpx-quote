@@ -150,8 +150,8 @@ export default async (req) => {
   const CLR = { natural:"White", black:"Black", blue:"Blue", green:"Green", red:"Red", yellow:"Yellow" };
   const colorList = [...new Set(parts.map(p => (p.dye && CLR[p.color]) ? CLR[p.color] : "White"))].join("|");
   const summary = parts.map(p => (p.qty + "x " + p.name + " " + p.x + "x" + p.y + "x" + p.z + "mm" + (p.vs?" +vapor":"") + (p.tumble?" +tumble":"") + (insCount(p)?(" +"+insCount(p)+"ins"):"") + (tapCnt(p)?(" +"+tapCnt(p)+"tap"):"") + (inspCnt(p)?(" +"+inspCnt(p)+"insp"):"") + (p.dye?(" +"+(p.color||"dye")):""))).join("; ").slice(0, 460);
-  const orderNo = (body.orderNo && /^WEB-[0-9]{8}-[0-9]{3,5}$/.test(body.orderNo)) ? body.orderNo
-    : ("WEB-" + new Date().toISOString().slice(0,10).replace(/-/g,"") + "-" + Math.floor(1000+Math.random()*9000));
+  let orderNo = (body.orderNo && /^WEB-(?:[0-9]{8}-)?[0-9]{3,6}$/.test(body.orderNo)) ? body.orderNo : null;
+  if (!orderNo) { try { const { getStore } = await import("@netlify/blobs"); const { allocateWebOrderNo } = await import("./_orderno.mjs"); orderNo = await allocateWebOrderNo(getStore("orders")); } catch (e) { orderNo = "WEB-" + Math.floor(1000+Math.random()*9000); } }
   const acctInfo = (speed==="account") ? (" — " + ((body.carrier||"carrier") + " acct " + (body.shipAccount||"(not provided)")).slice(0,80)) : "";
   const shipMethodLabel = SHIP_SPEEDS[speed].label + (speed==="pickup" ? " (free)" : "") + acctInfo;
   const engTxt = engHours > 0 ? ("Engineering services " + engHours + "h @ $" + RULES.engRate + "/hr") : "";

@@ -163,8 +163,8 @@ export default async (req) => {
   const acctInfo = (speed==="account") ? (" — " + (body.carrier||"carrier") + " acct " + (body.shipAccount||"(not provided)")) : "";
   const shipMethod = SHIP_SPEEDS[speed].label + (speed==="pickup" ? " (free)" : "") + acctInfo;
   // Keep the WEB- order number as the identifier (like card web orders), tagged with the customer PO.
-  const webNo = (body.orderNo && /^WEB-[0-9]{8}-[0-9]{3,5}$/.test(body.orderNo)) ? body.orderNo
-    : ("WEB-" + new Date().toISOString().slice(0,10).replace(/-/g,"") + "-" + Math.floor(1000+Math.random()*9000));
+  let webNo = (body.orderNo && /^WEB-(?:[0-9]{8}-)?[0-9]{3,6}$/.test(body.orderNo)) ? body.orderNo : null;
+  if (!webNo) { try { const { getStore } = await import("@netlify/blobs"); const { allocateWebOrderNo } = await import("./_orderno.mjs"); webNo = await allocateWebOrderNo(getStore("orders")); } catch (e) { webNo = "WEB-" + Math.floor(1000+Math.random()*9000); } }
   const orderIdent = webNo + (po ? (" (PO " + po + ")") : (approved ? " (APPROVED)" : ""));
   const notesPrefix = approved
     ? ("*** WEB APPROVED ORDER — no card — written approval on file; invoice on terms ***" + (po ? (" | Customer PO: " + po) : ""))

@@ -11,7 +11,7 @@ export default async (req) => {
   const id = String(body.id || "").replace(/[^A-Za-z0-9\-]/g, "");
   const orderNo = String(body.orderNo || "").replace(/[^A-Za-z0-9\-]/g, "");
   if (!/^Q-[A-Za-z0-9]{4,12}$/.test(id)) return json({ error: "Bad quote id" }, 400);
-  if (!/^WEB-[0-9]{8}-[0-9]{3,5}$/.test(orderNo)) return json({ error: "Bad order no" }, 400);
+  if (!/^WEB-(?:[0-9]{8}-)?[0-9]{3,6}$/.test(orderNo)) return json({ error: "Bad order no" }, 400);
 
   try {
     const store = getStore("orders");
