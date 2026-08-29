@@ -289,6 +289,7 @@
         <button class="btn ghost" id="packBtn" style="display:none" title="Local preview of the packing slip">Preview pack slip</button>
         <button class="btn ghost" id="quoteBtn" style="display:none" title="Local preview of the quote">Preview quote</button>
         <button class="btn ghost" id="invBtn" style="display:none" title="Production inventory list (thumbnails + qty + finishing + due date)">Preview inventory list</button>
+        <button class="btn ghost" id="acctBtn" style="display:none" title="Accounting PDF for QuickBooks invoicing (no images/dimensions)">Accounting PDF</button>
         <button class="btn orange" id="saveQuoteBtn" style="display:none" title="Save this quote and get a customer link">Save &amp; send to customer</button>
       </div>
     </div>
@@ -313,6 +314,7 @@
         <button class="ract" data-do="quoteBtn"><b>Preview quote</b><span class="rd">The internal/record copy of the quote (same branded PDF, with thumbnails).</span></button>
         <button class="ract" data-do="travBtn"><b>Preview traveler</b><span class="rd">Download the per-part production traveler.</span></button>
         <button class="ract" data-do="invBtn"><b>Preview inventory list</b><span class="rd">One-page production sheet: thumbnail, finishing, qty &amp; due date for the whole order.</span></button>
+        <button class="ract" data-do="acctBtn"><b>Accounting PDF</b><span class="rd">Clean line-item sheet (no images/dimensions) for QuickBooks AI invoicing.</span></button>
         <button class="ract" data-do="packBtn"><b>Preview packing slip</b><span class="rd">Download the customer packing slip.</span></button>
       </div>
     </div>
@@ -1527,6 +1529,66 @@ async function uploadInventory(orderNo,opts){
     await putFile(orderNo,"inventory","inventory-"+orderNo+".pdf",doc.output("arraybuffer"));
   }catch(e){}
 }
+/* ---- Accounting PDF — clean text-only line items for QuickBooks AI invoicing. No thumbnails,
+   no dimensions. Shows the BILLED (post-discount) unit price + amount per line and order totals. ---- */
+function buildAccountingPDF(orderNo,opts){
+  opts=opts||{};
+  syncNotesFromDOM();
+  const JS=window.jspdf&&window.jspdf.jsPDF; if(!JS||!quotable()) return null;
+  const doc=new JS({unit:"pt",format:"letter"}); if(typeof doc.autoTable!=="function") return null;
+  const NAVY=[27,42,74],ORANGE=[242,106,33],HEAD=[238,242,248],INK=[27,35,48],GREY=[90,102,120];
+  const W=doc.internal.pageSize.getWidth(), M=40, CW=W-2*M;
+  const t=orderTotals(); const orderDate=new Date().toLocaleDateString("en-US");
+  doc.setFont("helvetica","bold");doc.setFontSize(15);doc.setTextColor(NAVY[0],NAVY[1],NAVY[2]);
+  doc.text("3DPX ADDITIVE MANUFACTURING",M,46);
+  doc.setFontSize(16);doc.text("INVOICE DETAIL",W-M,48,{align:"right"});
+  doc.setDrawColor(ORANGE[0],ORANGE[1],ORANGE[2]);doc.setLineWidth(2);doc.line(M,56,W-M,56);
+  let y=80;
+  doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(GREY[0],GREY[1],GREY[2]);doc.text("BILL TO",M,y);
+  doc.setFont("helvetica","normal");doc.setTextColor(INK[0],INK[1],INK[2]);doc.setFontSize(10);
+  let py=y+15;[v("cName"),v("cCo"),v("cEmail")].filter(Boolean).forEach(l=>{doc.text(l,M,py);py+=13;});
+  const meta=[["Order #",orderNo],["Date",orderDate]]; if(opts.po)meta.push(["PO",opts.po]);
+  let my=y; meta.forEach(m=>{doc.setFont("helvetica","bold");doc.text(m[0],W-M-150,my);doc.setFont("helvetica","normal");doc.text(String(m[1]),W-M,my,{align:"right"});my+=14;});
+  y=Math.max(py,my)+8;
+  const engRow=t.eng>0?[["","Engineering services","Engineering / design services",t.engHours+" hr",money(RULES.engRate),money(t.eng)]]:[];
+  const partRows=parts.map((p,i)=>{const c=lineCalc(p);const ldf=lineFactor(c,t);const clr=p.dye?COLORS[partColor(p)].label:"White (Natural)";
+    const desc="SLS · Nylon 12 (PA12) · "+(p.dye?("Dyed "+clr):"White (Natural)")+(p.vs?" · Vapor smoothed":"")+(p.tumble?" · Tumbled":"")+(insertCount(p)?(" · "+insertCount(p)+" inserts"):"")+(tapCount(p)?(" · "+tapCount(p)+" tapped holes"):"")+(inspCount(p)?(" · "+inspCount(p)+"-pt inspection"):"")+(c.manual?" · manual quote":"");
+    const unit=c.manual?"—":money(c.net*ldf), amt=c.manual?"quote pending":money(c.lineNet*ldf);
+    return ["",p.name,desc,String(p.qty),unit,amt];});
+  const rows=engRow.concat(partRows); rows.forEach((r,i)=>r[0]=String(i+1));
+  doc.autoTable({startY:y,head:[["#","Item","Description","Qty","Unit price","Amount"]],body:rows,
+    theme:"grid",styles:{fontSize:9.5,cellPadding:6,textColor:INK,lineColor:[210,216,226],valign:"middle"},
+    headStyles:{fillColor:NAVY,textColor:[255,255,255],fontStyle:"bold",halign:"center"},
+    columnStyles:{0:{cellWidth:24,halign:"center"},1:{cellWidth:150},2:{cellWidth:CW-24-150-40-70-72,halign:"left",fontSize:9},3:{cellWidth:40,halign:"center"},4:{cellWidth:70,halign:"right"},5:{cellWidth:72,halign:"right",fontStyle:"bold"}},
+    margin:{left:M,right:M}});
+  // Totals block (billed amounts) — QuickBooks reads these to build the invoice.
+  const rowsT=[];
+  rowsT.push(["Subtotal",money(t.gross-t.saved)]);
+  if(t.topUp>0)rowsT.push(["Order minimum top-up",money(t.topUp)]);
+  if(t.matCert>0)rowsT.push(["Material certification",money(t.matCert)]);
+  else if(t.matCertWaived)rowsT.push(["Material certification","Included (fee waived)"]);
+  const shipVal=t.pickup?"Free (pickup)":(t.account?"Billed to carrier account":(t.shipping>0?money(t.shipping):"Quoted separately"));
+  rowsT.push(["Shipping",shipVal]);
+  rowsT.push(["Sales tax",TAX_EXEMPT?"$0.00 (tax exempt)":"Calculated at checkout"]);
+  const grand=t.total;
+  const half=CW*0.5, lx=M+CW-half;
+  doc.autoTable({startY:doc.lastAutoTable.finalY+10,body:rowsT,theme:"plain",styles:{fontSize:10,cellPadding:3,textColor:INK},
+    columnStyles:{0:{cellWidth:half*0.6,halign:"left",textColor:GREY},1:{cellWidth:half*0.4,halign:"right"}},margin:{left:lx,right:M}});
+  const fy=doc.lastAutoTable.finalY+4;
+  doc.setFillColor(NAVY[0],NAVY[1],NAVY[2]);doc.roundedRect(lx,fy,half,26,5,5,"F");
+  doc.setTextColor(255,255,255);doc.setFont("helvetica","bold");doc.setFontSize(11);
+  doc.text("TOTAL",lx+10,fy+17);doc.text(money(grand),M+CW-10,fy+17,{align:"right"});
+  let ny=fy+44;doc.setFont("helvetica","normal");doc.setFontSize(8.5);doc.setTextColor(GREY[0],GREY[1],GREY[2]);
+  doc.text("Amounts reflect final billed pricing (discounts applied). Sales tax and shipping per order terms. SLS / Nylon 12 (PA12).",M,ny,{maxWidth:CW});
+  const ph=doc.internal.pageSize.getHeight();
+  doc.setFontSize(8);doc.text("3DPX Additive Manufacturing  ·  Invoice detail  ·  "+orderNo,M,ph-24);
+  return doc;
+}
+async function uploadAccounting(orderNo,opts){
+  try{ const doc=buildAccountingPDF(orderNo,opts); if(!doc) return;
+    await putFile(orderNo,"accounting","accounting-"+orderNo+".pdf",doc.output("arraybuffer"));
+  }catch(e){}
+}
 let LOADED_QUOTE_ID=null;
 /* Retrying file upload (fixes occasional dropped STL). Returns true on success.
    Files over one chunk are split into <3.5MB pieces (each under Netlify's function-body cap),
@@ -1612,6 +1674,7 @@ async function startPayment(){
   await uploadPackingSlip(orderNo,{});
   await uploadQuote(orderNo,{});
   await uploadInventory(orderNo,{});
+  await uploadAccounting(orderNo,{});
   btn.textContent="Starting checkout…";
   try{
     const r=await fetch(CHECKOUT_URL,{method:"POST",headers:{"Content-Type":"application/json"},
@@ -1673,6 +1736,7 @@ async function submitPO(approved){
   await uploadPackingSlip(orderNo,{po});
   await uploadQuote(orderNo,{po});
   await uploadInventory(orderNo,{po});
+  await uploadAccounting(orderNo,{po});
   btn.textContent=approved?"Creating order…":"Submitting…";
   try{
     const r=await fetch("/.netlify/functions/submit-po",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -1858,6 +1922,7 @@ if(INTERNAL){
   const pk=document.getElementById("packBtn");if(pk){pk.style.display="";pk.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildPackingSlipPDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});if(d)d.save("packing-slip-"+genOrderNo()+".pdf");};}
   const qbn=document.getElementById("quoteBtn");if(qbn){qbn.style.display="";qbn.onclick=()=>{if(!quotable()){alert("Add a part or enter engineering hours first.");return;}const d=buildQuotePDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});if(d)d.save("quote-"+genOrderNo()+".pdf");};}
   const ibn=document.getElementById("invBtn");if(ibn){ibn.style.display="";ibn.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildInventoryPDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});if(d)d.save("inventory-"+genOrderNo()+".pdf"); else alert("Generator still loading — try again in a moment.");};}
+  const abn=document.getElementById("acctBtn");if(abn){abn.style.display="";abn.onclick=()=>{if(!quotable()){alert("Add a part or enter engineering hours first.");return;}const d=buildAccountingPDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});if(d)d.save("accounting-"+genOrderNo()+".pdf"); else alert("Generator still loading — try again in a moment.");};}
   // Rep actions panel: labeled buttons that trigger the (now hidden) summary buttons' handlers.
   const rap=document.getElementById("repActions");if(rap)rap.style.display="block";
   document.querySelectorAll("#repActions .ract").forEach(b=>b.onclick=()=>{const t=document.getElementById(b.dataset.do);if(t)t.click();});
