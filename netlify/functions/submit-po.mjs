@@ -44,7 +44,7 @@ function zoneMult(zip, region) {
   const m = Math.max(RULES.zoneMultMin, Math.min(RULES.zoneMultMax, 1 + (zone-4)*RULES.zoneStep));
   return Math.round(m*1000)/1000;
 }
-const FINISH = { dyePct:5, vsPct:30, vsMin:15, tumbFee:1.50, insertFee:1.50, tapFee:1.50, inspFee:1.50 };
+const FINISH = { dyePct:5, vsPct:30, vsMin:5, tumbFee:1.50, insertFee:1.50, tapFee:1.50, inspFee:1.50 };
 const insCount = p => (p && p.inserts && +p.insertQty > 0) ? Math.floor(+p.insertQty) : 0;
 const tapCnt  = p => (p && p.tapped && +p.tapQty > 0) ? Math.floor(+p.tapQty) : 0;
 const inspCnt = p => (p && p.inspect && +p.inspQty > 0) ? Math.floor(+p.inspQty) : 0;

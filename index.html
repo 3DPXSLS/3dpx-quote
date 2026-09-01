@@ -449,7 +449,7 @@ function lineCalc(p){
   return {list,qp,net,lineList:list*p.qty,lineNet:net*p.qty,fixed:false};}
 const FINISH = {  // finishing add-ons (stackable). Bead blast is standard & included.
   dyePct:5, dyeDays:1,          // Dyed black: +5%, +1 business day
-  vsPct:30,  vsMin:15, vsDays:1,// Vapor smooth: +30% ($15/part floor), +1 business day
+  vsPct:30,  vsMin:5, vsDays:1,// Vapor smooth: +30% ($5/part floor), +1 business day
   tumbFee:1.50, tumbDays:1,     // Tumble (standard): flat $1.50 per piece, +1 business day
   insertFee:1.50, insertDays:1, // Threaded inserts: $1.50 per insert × count per piece, +1 business day
   tapFee:1.50, tapDays:1,       // Tapped holes: $1.50 per hole × count per piece, +1 business day
@@ -491,7 +491,7 @@ function baseUnit(p){                              // pre-finish unit price (rat
   u=Math.max(u,RULES.minPrice);
   return u*RULES.marketAdj;                        // 10% competitiveness reduction on the base
 }
-// Vapor-smooth surcharge per piece: rep hard-coded price (p.vsPrice) if set, else 30% of base ($15 floor).
+// Vapor-smooth surcharge per piece: rep hard-coded price (p.vsPrice) if set, else 30% of base ($5 floor).
 function vsAmount(p){ if(!p||!p.vs) return 0; if(+p.vsPrice>0) return +p.vsPrice; return Math.max(baseUnit(p)*FINISH.vsPct/100, FINISH.vsMin); }
 function unitPrice(p){
   let u=baseUnit(p); const base=u;                 // finishing % is of the pre-finish unit
