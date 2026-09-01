@@ -166,6 +166,22 @@ export default async (req) => {
   let webNo = (body.orderNo && /^WEB-(?:[0-9]{8}-)?[0-9]{3,6}$/.test(body.orderNo)) ? body.orderNo : null;
   if (!webNo) { try { const { getStore } = await import("@netlify/blobs"); const { allocateWebOrderNo } = await import("./_orderno.mjs"); webNo = await allocateWebOrderNo(getStore("orders")); } catch (e) { webNo = "WEB-" + Math.floor(1000+Math.random()*9000); } }
   const orderIdent = webNo + (po ? (" (PO " + po + ")") : (approved ? " (APPROVED)" : ""));
+
+  // Idempotency guard: if a SLS Jobs row already carries this WEB order number, this is a repeat
+  // submission (e.g. the browser re-fired with the same allocated number) — don't create a duplicate row.
+  try {
+    const chk = await fetch("https://api.smartsheet.com/2.0/sheets/" + sheetId + "?columnIds=" + COL.poNumber, {
+      headers: { Authorization: "Bearer " + token },
+    });
+    if (chk.ok) {
+      const cj = await chk.json();
+      const wu = webNo.toUpperCase();
+      const exists = (cj.rows || []).some(row =>
+        (row.cells || []).some(c => c.columnId === COL.poNumber && String(c.value || "").toUpperCase().includes(wu)));
+      if (exists) { console.log("submit-po idempotent skip — row already exists for", webNo); return json({ ok: true, order: po, duplicate: true }); }
+    }
+  } catch (e) { /* if the check fails, fall through and create the row as before */ }
+
   const notesPrefix = approved
     ? ("*** WEB APPROVED ORDER — no card — written approval on file; invoice on terms ***" + (po ? (" | Customer PO: " + po) : ""))
     : ("*** WEB PO / INVOICE ORDER — UNPAID — verify credit & confirm price before production *** | Customer PO: " + po);

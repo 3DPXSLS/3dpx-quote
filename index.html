@@ -1272,6 +1272,15 @@ let PREVIEW_ORDER_NO=null;
    NOT consume a real number, so it returns a draft placeholder. allocateOrderNo() (async) fetches the
    real next number at the moment an order is actually placed. */
 function genOrderNo(){ if(PREVIEW_ORDER_NO) return PREVIEW_ORDER_NO; PREVIEW_ORDER_NO="WEB-PREVIEW"; return PREVIEW_ORDER_NO; }
+/* Double-submit guards. ORDER_IN_FLIGHT blocks a second click while one submission is still running
+   (the WEB-1004 case: a big upload hung, the rep clicked another order button, both reused the same
+   allocated number). ORDER_PLACED permanently blocks any further order once one has gone through.
+   _setOrderBtns() locks/unlocks ALL three order controls + rep tiles together, not just the clicked one. */
+let ORDER_IN_FLIGHT=false, ORDER_PLACED=false;
+function _setOrderBtns(disabled){
+  ["payBtn","poBtn","approvedBtn"].forEach(id=>{const b=document.getElementById(id); if(b){b.disabled=disabled;b.style.opacity=disabled?"0.5":"";b.style.pointerEvents=disabled?"none":"";}});
+  document.querySelectorAll('#repActions .ract').forEach(t=>{t.disabled=disabled;t.style.opacity=disabled?"0.5":"";t.style.pointerEvents=disabled?"none":"";});
+}
 async function allocateOrderNo(){
   if(PREVIEW_ORDER_NO && /^WEB-\d{3,6}$/.test(PREVIEW_ORDER_NO)) return PREVIEW_ORDER_NO;  // already allocated this attempt
   try{
@@ -1658,9 +1667,11 @@ async function ensureQuoteSaved(){
   return "";
 }
 async function startPayment(){
+  if(ORDER_IN_FLIGHT||ORDER_PLACED) return;   // an order is already running or was already placed this session
   syncNotesFromDOM();ensureThumbs();
   if(!quotable()) return;
   if(!validEmail()) return;
+  ORDER_IN_FLIGHT=true; _setOrderBtns(true);  // lock every order control until this attempt finishes
   const btn=document.getElementById("payBtn"), orig=btn.textContent;
   btn.disabled=true;
   await ensureQuoteSaved();
@@ -1692,11 +1703,12 @@ async function startPayment(){
         quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,certWaive:CERT_WAIVED,note:orderNotesText(),source:INTERNAL?"internal":"web",dueDate:REP_DUE||"",
         returnUrl:document.referrer||location.href})});
     const data=await r.json().catch(()=>({}));
-    if(data.url){ try{window.top.location.href=data.url;}catch(e){window.location.href=data.url;} return; }
+    if(data.url){ ORDER_PLACED=true; try{window.top.location.href=data.url;}catch(e){window.location.href=data.url;} return; }
     alert(data.error||"Couldn't start checkout. Please download your quote and email it to sales@3dpx.com.");
   }catch(e){
     alert("Online ordering isn't available right now. Please download your quote and email it to sales@3dpx.com.");
   }
+  ORDER_IN_FLIGHT=false; _setOrderBtns(false);   // attempt failed — allow a retry
   btn.textContent=orig; btn.disabled=false;
 }
 /* ---- Order by PO (invoice, no card) ---- */
@@ -1714,11 +1726,13 @@ function orderConfirmed(msg){
   try{ box.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){}
 }
 async function submitPO(approved){
+  if(ORDER_IN_FLIGHT||ORDER_PLACED) return;   // an order is already running or was already placed this session
   syncNotesFromDOM();ensureThumbs();
   if(!quotable()) return;
   if(!validEmail()) return;
   const po=(v("cPO")||"").trim();
   if(!approved && !po){alert("Please enter your PO number to submit a PO order.");document.getElementById("cPO").focus();return;}
+  ORDER_IN_FLIGHT=true; _setOrderBtns(true);  // lock every order control until this attempt finishes
   const btn=document.getElementById(approved?"approvedBtn":"poBtn"), orig=btn.textContent; btn.disabled=true;
   await ensureQuoteSaved();
   const orderNo=await allocateOrderNo();
@@ -1757,6 +1771,7 @@ async function submitPO(approved){
       const b=document.getElementById("payBanner");
       b.style.display="block";b.style.background="#e8f7ef";b.style.border="1px solid #a9e0c3";b.style.color="#1e7d52";
       b.innerHTML=msg;
+      ORDER_PLACED=true;                         // order is in — never allow a second submission this session
       orderConfirmed(msg);                       // inline confirmation under the buttons + gray out order controls
       btn.textContent=approved?"Order created ✓":"PO submitted ✓"; return;
     }
@@ -1764,6 +1779,7 @@ async function submitPO(approved){
   }catch(e){
     alert("Ordering isn't available right now. Please download the quote and email it to sales@3dpx.com.");
   }
+  ORDER_IN_FLIGHT=false; _setOrderBtns(false);   // attempt failed — allow a retry
   btn.textContent=orig; btn.disabled=false;
 }
 if(PAYMENTS_ENABLED){
