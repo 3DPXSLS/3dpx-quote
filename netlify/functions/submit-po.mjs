@@ -96,6 +96,7 @@ function orderTotal(parts, region, matCert, speed, zip, addl, promoPct, eng) {
   for (const p of parts) {
     const q = Math.max(1, parseInt(p.qty)||1);
     const ov = (+p.ov>0) ? +p.ov : 0;
+    if (p.manual && !(ov>0)) continue;   // unpriced manual-quote item: $0, same as the widget (never guess from geometry)
     if (ov>0) { fixedTot += ov*q; }
     else { const u = unitPrice(p); discGross += u*q; postQty += u*(1-qd(q)/100)*q; hasNormal=true; }
   }
@@ -149,6 +150,11 @@ export default async (req) => {
     try { const { getStore } = await import("@netlify/blobs"); const q = await getStore("orders").get("Q-QUOTES/" + body.quoteId + ".json", { type: "json" }); if (q && typeof q.addlDisc === "number") addlDisc = Math.max(0, q.addlDisc); if (q && typeof q.engHours === "number") engHours = Math.max(0, q.engHours); if (q && typeof q.certWaive === "boolean") certWaive = q.certWaive; if (q && typeof q.taxExempt === "boolean") taxExemptQ = q.taxExempt; if (q && Array.isArray(q.parts)) q.parts.forEach((qp, i) => { if (parts[i] && qp && +qp.override > 0) parts[i].ov = +qp.override; if (parts[i] && qp && +qp.vsPrice > 0) parts[i].vsp = +qp.vsPrice; }); } catch (e) {}
   }
   if (!parts.length && !(engHours > 0)) return json({ error: "No parts or engineering services in order." }, 400);
+  // A manual-quote item has no price, so ordering one online would under-bill the job and force a
+  // follow-up invoice. Reps can clear it by setting a price override on the quote.
+  if (body.source !== "internal" && parts.some(p => p.manual && !(+p.ov > 0))) {
+    return json({ error: "Some items still need a manual quote and can't be ordered online yet. Please email sales@3dpx.com and we'll price them and send you a payment link." }, 409);
+  }
   const promoPct = PROMO[String(body.promo||"").trim().toUpperCase()] || 0;
   const price = orderTotal(parts, body.region, (!!body.matCert && !certWaive), speed, body.zip, addlDisc, promoPct, engHours*RULES.engRate);
   const totalParts = parts.reduce((s,p)=>s+(Math.max(1,parseInt(p.qty)||1)),0);
@@ -188,7 +194,18 @@ export default async (req) => {
   const engTxt = engHours > 0 ? ("Engineering services " + engHours + "h @ $" + RULES.engRate + "/hr") : "";
   const detail = [summary, engTxt].filter(Boolean).join(" | ") || "(no parts)";
   const custNote = String(body.note || "").trim();
-  const notes = (notesPrefix + " | " + detail + " | " + shipMethod + (body.matCert?(certWaive?" | Material cert (fee waived)":" | Material cert"):"") + (taxExemptQ?" | TAX EXEMPT":"") + (custNote?(" | Customer note: " + custNote):"")).slice(0, 495);
+  const notes = (notesPrefix + " | " + detail + " | " + shipMethod + (body.matCert?(certWaive?" | Material cert (fee waived)":" | Material cert"):"") + (taxExemptQ?" | TAX EXEMPT":"") + (body.filesOverride?" | *** FILES TO FOLLOW — no print files uploaded; do not schedule until received ***":"") + (custNote?(" | Customer note: " + custNote):"")).slice(0, 495);
+
+  // Safety net: never record an order for printable parts when nothing was actually uploaded.
+  // The widget blocks this per-part before it gets here; this catches a stale tab or a bypassed client.
+  if (parts.length && !body.filesOverride) {
+    try {
+      const { getStore } = await import("@netlify/blobs");
+      const listing = await getStore("orders").list({ prefix: webNo + "/" });
+      const real = (listing.blobs || []).filter(b => { const r = b.key.slice((webNo + "/").length); return r && !r.startsWith(".part-") && !/\.(pdf|json)$/i.test(r); });
+      if (!real.length) return json({ error: "No part files were received for this order. Please re-add your files and try again, or email sales@3dpx.com." }, 409);
+    } catch (e) { /* blob check unavailable — fall through rather than block a real order */ }
+  }
 
   const contactVal = (body.name || "") + (body.email ? " <" + body.email + ">" : "");
   const due = /^\d{4}-\d{2}-\d{2}$/.test(String(body.dueDate||"")) ? body.dueDate : addBusinessDays(new Date(), leadDaysCalc(parts)).toISOString().slice(0,10);

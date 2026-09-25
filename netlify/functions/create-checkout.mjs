@@ -76,6 +76,7 @@ function orderTotal(parts, region, matCert, speed, zip, addl, promoPct, eng) {
   for (const p of parts) {
     const q = Math.max(1, parseInt(p.qty)||1);
     const ov = (+p.ov>0) ? +p.ov : 0;
+    if (p.manual && !(ov>0)) continue;   // unpriced manual-quote item: $0, same as the widget (never guess from geometry)
     if (ov>0) { fixedTot += ov*q; }
     else { const u = unitPrice(p); discGross += u*q; postQty += u*(1-qd(q)/100)*q; hasNormal=true; }
   }
@@ -134,6 +135,11 @@ export default async (req) => {
     } catch (e) { /* keep fallback */ }
   }
   if (!parts.length && !(engHours > 0)) return json({ error: "No parts in order." }, 400);
+  // A manual-quote item has no price, so taking payment now would under-bill the job and force a
+  // follow-up invoice. Reps can clear it by setting a price override on the quote.
+  if (body.source !== "internal" && parts.some(p => p.manual && !(+p.ov > 0))) {
+    return json({ error: "Some items still need a manual quote and can't be ordered online yet. Please email sales@3dpx.com and we'll price them and send you a payment link." }, 409);
+  }
   // Block card checkout for any item that can't be auto-priced (manual STEP / zero geometry) unless a rep set an override.
   const needsManual = parts.some(p => (p.manual || !(+p.vol > 0) || !(+p.x > 0 && +p.y > 0 && +p.z > 0)) && !(+p.ov > 0));
   if (needsManual) return json({ error: "This order includes an item that needs a manual quote — please use Submit PO or email sales@3dpx.com, and we'll send a payment link." }, 400);
@@ -157,7 +163,18 @@ export default async (req) => {
   const engTxt = engHours > 0 ? ("Engineering services " + engHours + "h @ $" + RULES.engRate + "/hr") : "";
   const detail = [summary, engTxt].filter(Boolean).join(" | ") || "SLS parts";
   const custNote = String(body.note || "").trim();
-  const notes = (detail + " | " + shipMethodLabel + (body.matCert?(certWaive?" | Material cert (fee waived)":" | Material cert"):"") + (taxExempt?" | TAX EXEMPT":"") + (custNote?(" | Customer note: " + custNote):"") + " | Paid via Stripe").slice(0, 495);
+  const notes = (detail + " | " + shipMethodLabel + (body.matCert?(certWaive?" | Material cert (fee waived)":" | Material cert"):"") + (taxExempt?" | TAX EXEMPT":"") + (body.filesOverride?" | *** FILES TO FOLLOW — no print files uploaded; do not schedule until received ***":"") + (custNote?(" | Customer note: " + custNote):"") + " | Paid via Stripe").slice(0, 495);
+
+  // Safety net: never take a card payment for printable parts when nothing was actually uploaded.
+  // The widget blocks this per-part before it gets here; this catches a stale tab or a bypassed client.
+  if (parts.length && !body.filesOverride) {
+    try {
+      const { getStore } = await import("@netlify/blobs");
+      const listing = await getStore("orders").list({ prefix: orderNo + "/" });
+      const real = (listing.blobs || []).filter(b => { const r = b.key.slice((orderNo + "/").length); return r && !r.startsWith(".part-") && !/\.(pdf|json)$/i.test(r); });
+      if (!real.length) return json({ error: "No part files were received for this order. Please re-add your files and try again, or email sales@3dpx.com." }, 409);
+    } catch (e) { /* blob check unavailable — fall through rather than block a real order */ }
+  }
 
   let ret = (body.returnUrl && /^https?:\/\//.test(body.returnUrl)) ? body.returnUrl : (req.headers.get("origin") || "");
   const sep = ret.includes("?") ? "&" : "?";

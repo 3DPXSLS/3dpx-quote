@@ -196,6 +196,7 @@
       <div><label>Custom due date (optional)</label><input id="repDue" type="date"></div>
       <div><label>Tax status</label><label style="display:inline-flex;align-items:center;gap:7px;font-size:13px;padding:8px 0;cursor:pointer"><input type="checkbox" id="taxExempt"> Tax exempt — no sales tax</label></div>
       <div><label>Material cert fee</label><label style="display:inline-flex;align-items:center;gap:7px;font-size:13px;padding:8px 0;cursor:pointer"><input type="checkbox" id="certWaive"> Waive $100 fee — cert still provided</label></div>
+      <div><label>Missing files</label><label style="display:inline-flex;align-items:center;gap:7px;font-size:13px;padding:8px 0;cursor:pointer"><input type="checkbox" id="fileOverride"> Order without files — files coming separately</label></div>
       <div><label>Material price check</label><div id="perCcReadout" style="padding:9px 0;font-weight:700;color:#1b2a4a">$0.00 / cm³</div></div>
     </div>
     <div style="font-size:11px;color:#8a95a8;margin-top:6px">$/cm³ = discounted parts value ÷ total printed volume. The additional discount reduces the customer's total and the amount charged. Visible only in the internal tool.</div>
@@ -510,6 +511,7 @@ function quotable(){ return parts.length>0 || (ENG_HOURS>0); }
 let REP_DUE="";   // rep-set custom due date (YYYY-MM-DD), internal only; blank = auto from lead time
 let TAX_EXEMPT=false; // rep-set: customer is tax exempt → no sales tax (internal only)
 let CERT_WAIVED=false; // rep-set: waive the material-certification fee (cert still provided, $0)
+let FILES_OVERRIDE=false; // rep-set: allow an order through with missing part files (they arrive by email/Dropbox)
 const PROMO_CODES={"3DPXSAVE10":10, "3DPXSAVE5":5};  // customer promo codes → % off. Editable. STACKS on top of the automatic + additional discounts.
 let PROMO_CODE="", PROMO_PCT=0;          // resolved from the code the customer typed (0 = none/invalid)
 function resolvePromo(code){const k=String(code||"").trim().toUpperCase();return {code:k, pct:PROMO_CODES[k]||0};}
@@ -1086,6 +1088,11 @@ function render(){
   const _pay=document.getElementById("payBtn");
   if(_pay){ _pay.disabled=hasUnpriced; _pay.style.opacity=hasUnpriced?"0.5":""; _pay.title=hasUnpriced?"An item needs a manual quote — use Email quote, Submit PO, or request a payment link":""; }
   {const rp=document.querySelector('#repActions .ract[data-do="payBtn"]'); if(rp){rp.disabled=hasUnpriced; rp.title=hasUnpriced?"An item needs a manual quote — use Submit PO or set a price override":"";}}
+  // Customers: PO / approved orders were leaving manual items unpriced too, so gate those the same way.
+  if(!INTERNAL && !ORDER_PLACED && !ORDER_IN_FLIGHT){
+    ["poBtn","approvedBtn"].forEach(id=>{const b=document.getElementById(id);
+      if(b){b.disabled=hasUnpriced; b.style.opacity=hasUnpriced?"0.5":""; b.title=hasUnpriced?"An item needs a manual quote — email us and we'll price it and send a payment link":"";}});
+  }
   const pcEl=document.getElementById("perCcReadout"); if(pcEl) pcEl.textContent="$"+t.perCc.toFixed(2)+" / cm³"+(t.addlPct>0?("  ·  addl "+t.addlPct+"% (−"+money(t.addlDisc)+")"):"")+"  ·  vol "+Math.round(t.totalVol)+" cm³";
   const ov=nextValueTier(t.gross),on=document.getElementById("orderNudge");
   if(ov&&parts.length){on.style.display="block";
@@ -1645,6 +1652,62 @@ async function uploadManifest(orderNo){
       {method:"POST",headers:{"Content-Type":"application/octet-stream"},body});
   }catch(e){}
 }
+/* Hard gate: confirm EVERY quoted part has its file stored server-side before an order is placed.
+   Asks the server what's actually there (not the browser), so files copied over from a saved quote by
+   promote-quote count as present, while a silent upload failure is caught. Returns a list of the parts
+   still missing a file — empty list means good to go. If the check itself can't be completed after
+   retries we treat that as "unconfirmed" and block, rather than risk a paid order with nothing to print. */
+async function verifyOrderFiles(orderNo){
+  const res={missing:[],oversize:[]};
+  if(!parts.length) return res;                    // engineering-only order: nothing to verify
+  let have=null;
+  for(let a=0;a<3&&!have;a++){
+    try{ const r=await fetch("/.netlify/functions/check-files?order="+encodeURIComponent(orderNo));
+      const d=await r.json().catch(()=>null);
+      if(d&&d.ok&&Array.isArray(d.files)) have=d.files; }catch(e){}
+    if(!have) await new Promise(res=>setTimeout(res,500*(a+1)));
+  }
+  const norm=s=>String(s||"").toLowerCase().trim();
+  const set=have?new Set(have.map(norm)):null;
+  for(const p of parts){
+    const label=p.fileName||p.name, file=p.fileName||(p.name+".stl");
+    if(set&&set.has(norm(file))) continue;                                   // it's on the server — good
+    if(p.fileBuf&&p.fileBuf.byteLength>MAX_UPLOAD){res.oversize.push(label);continue;}  // too big to upload: email it
+    res.missing.push(label+(set?(p.fileBuf?" — upload didn't complete":" — no file attached"):" — couldn't confirm the upload"));
+  }
+  return res;
+}
+/* Oversized files only warn (they're quoted fine, they just have to come by email). A file that was
+   never attached or whose upload failed blocks the order. Returns true if the order must stop. */
+function blockForFiles(r){
+  if(r.oversize.length) alert("Heads up — "+r.oversize.length+" file"+(r.oversize.length>1?"s are":" is")+" over "+MAX_UPLOAD_MB+" MB and couldn't be uploaded here:\n\n• "+r.oversize.join("\n• ")
+    +"\n\nYour order is still being placed. Please email "+(r.oversize.length>1?"them":"it")+" to sales@3dpx.com with your order number.");
+  if(!r.missing.length) return false;
+  if(FILES_OVERRIDE) return false;                 // rep chose to proceed; recorded in the order notes
+  alert("Order not placed — "+r.missing.length+" part file"+(r.missing.length>1?"s are":" is")+" missing:\n\n• "+r.missing.join("\n• ")
+    +"\n\nEvery part needs its file uploaded before the order can go through, so production has something to print."
+    +"\n\nPlease re-add "+(r.missing.length>1?"these files":"this file")+" and try again, or email sales@3dpx.com and we'll help.");
+  return true;
+}
+/* ---- Nothing unpriced may be ordered ----
+   A "manual quote" item (a STEP we couldn't auto-measure, or an assembly) has NO price — lineCalc
+   returns 0 for it — so letting one through checkout means the customer pays less than the job is
+   worth and has to be re-invoiced afterwards. The card button was already disabled for this, but
+   Submit PO / approved orders were not, which is how unpriced parts were getting ordered.
+   Customers are blocked; a rep can set a price override on the item, or knowingly confirm. */
+function unpricedParts(){ return parts.filter(p=>p.manual && !(+p.override>0)); }
+function blockForUnpriced(){
+  const u=unpricedParts(); if(!u.length) return false;
+  const names=u.map(p=>p.fileName||p.name).join("\n• ");
+  if(!INTERNAL){
+    alert("We can't take this order yet — "+u.length+" item"+(u.length>1?"s still need":" still needs")+" a manual quote:\n\n• "+names
+      +"\n\n"+(u.length>1?"They aren't":"It isn't")+" included in your total, so ordering now would leave "+(u.length>1?"them":"it")+" unpriced."
+      +"\n\nPlease email your quote to sales@3dpx.com — we'll price "+(u.length>1?"them":"it")+" and send you a payment link the same day.");
+    return true;
+  }
+  return !confirm("⚠ "+u.length+" item"+(u.length>1?"s have":" has")+" no price and will go on this order at $0:\n\n• "+names
+    +"\n\nSet a price override on "+(u.length>1?"them":"it")+" first if "+(u.length>1?"they":"it")+" should be billed now.\n\nOK = place the order anyway   ·   Cancel = go back");
+}
 /* Rep orders carry the per-item override + additional discount to the server through a saved quote
    (the server reads pricing authoritatively from the quote, never from the browser). Auto-saves one
    silently if the rep hasn't already, so internal Order&pay / PO / approved orders honor the override. */
@@ -1671,6 +1734,7 @@ async function startPayment(){
   syncNotesFromDOM();ensureThumbs();
   if(!quotable()) return;
   if(!validEmail()) return;
+  if(blockForUnpriced()) return;               // never take money for a job with unpriced items
   ORDER_IN_FLIGHT=true; _setOrderBtns(true);  // lock every order control until this attempt finishes
   const btn=document.getElementById("payBtn"), orig=btn.textContent;
   btn.disabled=true;
@@ -1678,9 +1742,12 @@ async function startPayment(){
   const orderNo=await allocateOrderNo();
   if(LOADED_QUOTE_ID){try{await fetch("/.netlify/functions/promote-quote",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({orderNo,id:LOADED_QUOTE_ID})});}catch(e){}}
   btn.textContent="Uploading files…";
-  const _missed=await uploadOrderFiles(orderNo);
+  await uploadOrderFiles(orderNo);
   await uploadManifest(orderNo);
-  if(_missed.length) alert("Heads up — "+_missed.length+" file"+(_missed.length>1?"s were":" was")+" too large to upload automatically:\n• "+_missed.join("\n• ")+"\n\nYour order is still being placed. Please email "+(_missed.length>1?"these files":"this file")+" to sales@3dpx.com with your order number so we can print "+(_missed.length>1?"them":"it")+".");
+  btn.textContent="Checking files…";
+  if(blockForFiles(await verifyOrderFiles(orderNo))){      // no file, no order — stop before any charge
+    ORDER_IN_FLIGHT=false; _setOrderBtns(false); btn.textContent=orig; btn.disabled=false; return;
+  }
   await uploadTraveler(orderNo,{});
   await uploadPackingSlip(orderNo,{});
   await uploadQuote(orderNo,{});
@@ -1700,7 +1767,7 @@ async function startPayment(){
         shipAccount:(shipSpeed()==="account")?v("sAcct"):"",
         shipAddress:(shipSpeed()==="pickup")?"Pickup at 3DPX (Chicago, IL)":[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "),
         matCert:document.getElementById("matCert").checked,
-        quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,certWaive:CERT_WAIVED,note:orderNotesText(),source:INTERNAL?"internal":"web",dueDate:REP_DUE||"",
+        quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,certWaive:CERT_WAIVED,note:orderNotesText(),source:INTERNAL?"internal":"web",dueDate:REP_DUE||"",filesOverride:FILES_OVERRIDE,
         returnUrl:document.referrer||location.href})});
     const data=await r.json().catch(()=>({}));
     if(data.url){ ORDER_PLACED=true; try{window.top.location.href=data.url;}catch(e){window.location.href=data.url;} return; }
@@ -1732,15 +1799,19 @@ async function submitPO(approved){
   if(!validEmail()) return;
   const po=(v("cPO")||"").trim();
   if(!approved && !po){alert("Please enter your PO number to submit a PO order.");document.getElementById("cPO").focus();return;}
+  if(blockForUnpriced()) return;               // PO/approved orders were the leak: unpriced items billed at $0
   ORDER_IN_FLIGHT=true; _setOrderBtns(true);  // lock every order control until this attempt finishes
   const btn=document.getElementById(approved?"approvedBtn":"poBtn"), orig=btn.textContent; btn.disabled=true;
   await ensureQuoteSaved();
   const orderNo=await allocateOrderNo();
   if(LOADED_QUOTE_ID){try{await fetch("/.netlify/functions/promote-quote",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({orderNo,id:LOADED_QUOTE_ID})});}catch(e){}}
   btn.textContent="Uploading files…";
-  const _missed=await uploadOrderFiles(orderNo);
+  await uploadOrderFiles(orderNo);
   await uploadManifest(orderNo);
-  if(_missed.length) alert("Heads up — "+_missed.length+" file"+(_missed.length>1?"s were":" was")+" too large to upload automatically:\n• "+_missed.join("\n• ")+"\n\nYour order is still being placed. Please email "+(_missed.length>1?"these files":"this file")+" to sales@3dpx.com with your order number so we can print "+(_missed.length>1?"them":"it")+".");
+  btn.textContent="Checking files…";
+  if(blockForFiles(await verifyOrderFiles(orderNo))){      // no file, no order — stop before submitting
+    ORDER_IN_FLIGHT=false; _setOrderBtns(false); btn.textContent=orig; btn.disabled=false; return;
+  }
   const pf=document.getElementById("poFile");
   if(pf&&pf.files&&pf.files[0]&&pf.files[0].size<=MAX_UPLOAD){
     try{ const buf=await pf.files[0].arrayBuffer();
@@ -1762,7 +1833,7 @@ async function submitPO(approved){
         zip:v("sZip"), shipSpeed:shipSpeed(),
         carrier:(shipSpeed()==="account")?v("sCarrier"):"", shipAccount:(shipSpeed()==="account")?v("sAcct"):"",
         shipAddress:(shipSpeed()==="pickup")?"Pickup at 3DPX (Chicago, IL)":[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "),
-        matCert:document.getElementById("matCert").checked,quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,certWaive:CERT_WAIVED,note:orderNotesText(),source:INTERNAL?"internal":"web",dueDate:REP_DUE||""})});
+        matCert:document.getElementById("matCert").checked,quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,certWaive:CERT_WAIVED,note:orderNotesText(),source:INTERNAL?"internal":"web",dueDate:REP_DUE||"",filesOverride:FILES_OVERRIDE})});
     const data=await r.json().catch(()=>({}));
     if(data.ok){
       const msg=approved
@@ -1930,6 +2001,7 @@ if(INTERNAL){
   const rdue=document.getElementById("repDue");if(rdue)rdue.addEventListener("change",()=>{REP_DUE=rdue.value||"";render();});
   const tex=document.getElementById("taxExempt");if(tex)tex.addEventListener("change",()=>{TAX_EXEMPT=tex.checked;render();});
   const cwv=document.getElementById("certWaive");if(cwv)cwv.addEventListener("change",()=>{CERT_WAIVED=cwv.checked;render();});
+  const fov=document.getElementById("fileOverride");if(fov)fov.addEventListener("change",()=>{FILES_OVERRIDE=fov.checked;});
   const dh=document.getElementById("detailsHeading");if(dh)dh.textContent="2 · Customer details";
   {const n=document.getElementById("cName");if(n)n.placeholder="Customer name";const e=document.getElementById("cEmail");if(e)e.placeholder="customer@company.com";}
   const sb=document.getElementById("saveQuoteBtn");if(sb){sb.style.display="";sb.onclick=saveQuote;}
