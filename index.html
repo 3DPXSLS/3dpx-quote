@@ -1089,7 +1089,9 @@ function render(){
   if(_pay){ _pay.disabled=hasUnpriced; _pay.style.opacity=hasUnpriced?"0.5":""; _pay.title=hasUnpriced?"An item needs a manual quote — use Email quote, Submit PO, or request a payment link":""; }
   {const rp=document.querySelector('#repActions .ract[data-do="payBtn"]'); if(rp){rp.disabled=hasUnpriced; rp.title=hasUnpriced?"An item needs a manual quote — use Submit PO or set a price override":"";}}
   // Customers: PO / approved orders were leaving manual items unpriced too, so gate those the same way.
-  if(!INTERNAL && !ORDER_PLACED && !ORDER_IN_FLIGHT){
+  // NB: use isInternalView() here, not INTERNAL — render() runs during load BEFORE `const INTERNAL`
+  // is initialised, and touching it would throw and abort the rest of the script.
+  if(!isInternalView() && !ORDER_PLACED && !ORDER_IN_FLIGHT){
     ["poBtn","approvedBtn"].forEach(id=>{const b=document.getElementById(id);
       if(b){b.disabled=hasUnpriced; b.style.opacity=hasUnpriced?"0.5":""; b.title=hasUnpriced?"An item needs a manual quote — email us and we'll price it and send a payment link":"";}});
   }
@@ -1695,6 +1697,9 @@ function blockForFiles(r){
    worth and has to be re-invoiced afterwards. The card button was already disabled for this, but
    Submit PO / approved orders were not, which is how unpriced parts were getting ordered.
    Customers are blocked; a rep can set a price override on the item, or knowingly confirm. */
+/* Same answer as INTERNAL, but safe to call at any point during load: a function declaration is
+   hoisted, whereas `const INTERNAL` sits in the temporal dead zone until line ~1891. */
+function isInternalView(){ try{ return new URLSearchParams(location.search).has("internal"); }catch(e){ return false; } }
 function unpricedParts(){ return parts.filter(p=>p.manual && !(+p.override>0)); }
 function blockForUnpriced(){
   const u=unpricedParts(); if(!u.length) return false;
