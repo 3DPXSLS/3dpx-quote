@@ -173,20 +173,24 @@ export default async (req) => {
   if (!webNo) { try { const { getStore } = await import("@netlify/blobs"); const { allocateWebOrderNo } = await import("./_orderno.mjs"); webNo = await allocateWebOrderNo(getStore("orders")); } catch (e) { webNo = "WEB-" + Math.floor(1000+Math.random()*9000); } }
   const orderIdent = webNo + (po ? (" (PO " + po + ")") : (approved ? " (APPROVED)" : ""));
 
-  // Idempotency guard: if a SLS Jobs row already carries this WEB order number, this is a repeat
-  // submission (e.g. the browser re-fired with the same allocated number) — don't create a duplicate row.
+  // Idempotency guard: claim this order number exactly once, via a single conditional blob write.
+  // (An earlier version read the ENTIRE SLS Jobs sheet here. That one call ate so much of the
+  // function's time budget that attachOrderFiles below ran out of time mid-way and left the order's
+  // PDFs sitting unattached in the blob store — so keep this O(1) and fast.)
+  let claimStore = null;
   try {
-    const chk = await fetch("https://api.smartsheet.com/2.0/sheets/" + sheetId + "?columnIds=" + COL.poNumber, {
-      headers: { Authorization: "Bearer " + token },
-    });
-    if (chk.ok) {
-      const cj = await chk.json();
-      const wu = webNo.toUpperCase();
-      const exists = (cj.rows || []).some(row =>
-        (row.cells || []).some(c => c.columnId === COL.poNumber && String(c.value || "").toUpperCase().includes(wu)));
-      if (exists) { console.log("submit-po idempotent skip — row already exists for", webNo); return json({ ok: true, order: po, duplicate: true }); }
+    const { getStore } = await import("@netlify/blobs");
+    claimStore = getStore("orders");
+    const res = await claimStore.setJSON("ORDERED/" + webNo + ".json",
+      { at: new Date().toISOString(), po, approved }, { onlyIfNew: true });
+    if (res && res.modified === false) {
+      console.log("submit-po idempotent skip — already claimed:", webNo);
+      return json({ ok: true, order: po, duplicate: true });
     }
-  } catch (e) { /* if the check fails, fall through and create the row as before */ }
+  } catch (e) {
+    // A 412 here means another submission already claimed it → treat as a duplicate.
+    if (claimStore) { console.log("submit-po idempotent skip (conflict):", webNo); return json({ ok: true, order: po, duplicate: true }); }
+  }
 
   const notesPrefix = approved
     ? ("*** WEB APPROVED ORDER — no card — written approval on file; invoice on terms ***" + (po ? (" | Customer PO: " + po) : ""))

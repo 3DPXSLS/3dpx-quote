@@ -1426,7 +1426,12 @@ function buildQuotePDF(orderNo,opts){
   doc.setFont("helvetica","normal");doc.setTextColor(INK[0],INK[1],INK[2]);doc.setFontSize(10);
   let py=y+15;[v("cName"),v("cCo"),v("cEmail")].filter(Boolean).forEach(l=>{doc.text(l,M,py);py+=13;});
   doc.setFontSize(10);doc.setTextColor(INK[0],INK[1],INK[2]);
-  const meta=[["Quote #",orderNo],["Date",orderDate],["Valid","30 days"]]; if(opts.po)meta.push(["PO",opts.po]);
+  const meta=[["Quote #",orderNo],["Date",orderDate],["Valid","30 days"]];
+  // Lead time belongs on the quote the customer actually receives (the on-screen preview already
+  // shows it). A rep-set due date wins over the calculated lead, same as the order summary panel.
+  if(REP_DUE) meta.push(["Due date",new Date(REP_DUE+"T00:00:00").toLocaleDateString("en-US")]);
+  else meta.push(["Est. lead",orderLeadDays()+" business days"]);
+  if(opts.po)meta.push(["PO",opts.po]);
   let my=y; meta.forEach(m=>{doc.setFont("helvetica","bold");doc.text(m[0],W-M-150,my);doc.setFont("helvetica","normal");doc.text(String(m[1]),W-M,my,{align:"right"});my+=14;});
   y=Math.max(py,my)+8;
   const engRowPdf=t.eng>0?[["","","Engineering services","Engineering / design services · "+money(RULES.engRate)+"/hr",t.engHours+" hr",money(RULES.engRate),money(t.eng),money(t.eng)]]:[];
