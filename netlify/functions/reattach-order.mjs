@@ -10,8 +10,6 @@
 //          GET /.netlify/functions/reattach-order?scan=1[&max=5]   ← find + fix every stranded order
 // If env RECONCILE_KEY is set, ?key must match.
 
-import { attachOrderFiles } from "./_attach.mjs";
-
 const SLS_JOBS = "7474902212077444";
 const LOG      = "5963104906071940";
 const SJ_ORDERNO = 2573430013880196;   // SLS Jobs: PO or Order Number
@@ -74,10 +72,42 @@ export default async (req) => {
 
     const targets = [{ sheetId, rowId: job.id }];
     if (lg) targets.push({ sheetId: LOG, rowId: lg.id });
-    await attachOrderFiles(token, orderNo, targets);
+
+    // Attach inline (rather than via _attach.mjs) so every step is reportable — a silent
+    // per-file failure in the shared helper is invisible without Netlify log access.
+    const files = [];
+    const listing = await store.list({ prefix: orderNo + "/" });
+    for (const b of (listing.blobs || [])) {
+      const rest = b.key.slice((orderNo + "/").length);
+      if (!rest || rest.startsWith(".part-")) continue;
+      const rec = { key: b.key };
+      try {
+        const meta = await store.getMetadata(b.key).catch(() => null);
+        const fname = (meta && meta.metadata && meta.metadata.name) || b.key.split("__").pop() || "file";
+        rec.name = fname;
+        if (fname === "manifest.json") { await store.delete(b.key).catch(() => {}); rec.result = "manifest deleted"; files.push(rec); continue; }
+        const bytes = await store.get(b.key, { type: "arrayBuffer" });
+        if (!bytes) { rec.result = "blob read returned null"; files.push(rec); continue; }
+        rec.bytes = bytes.byteLength;
+        let primaryOk = false;
+        for (let i = 0; i < targets.length; i++) {
+          const t = targets[i];
+          const fd = new FormData();
+          fd.append("file", new Blob([bytes], { type: "application/octet-stream" }), fname);
+          const ar = await fetch("https://api.smartsheet.com/2.0/sheets/" + t.sheetId + "/rows/" + t.rowId + "/attachments",
+            { method: "POST", headers: { Authorization: "Bearer " + token }, body: fd });
+          const okTxt = ar.ok ? "ok" : (await ar.text()).slice(0, 200);
+          rec["target" + i] = ar.status + " " + okTxt;
+          if (i === 0) primaryOk = ar.ok;
+        }
+        if (primaryOk) { await store.delete(b.key); rec.result = "attached + removed"; }
+        else rec.result = "attach failed, blob kept";
+      } catch (e) { rec.result = "threw: " + e.message; }
+      files.push(rec);
+    }
 
     const after = await countFiles(store, orderNo);
-    done.push({ order: orderNo, attached: before - after, remaining: after, targets: targets.length });
+    done.push({ order: orderNo, attached: before - after, remaining: after, targets: targets.length, files });
   }
   return json({ ok: true, processed: done.length, done });
 };
