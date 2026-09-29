@@ -165,7 +165,12 @@ export default async (req) => {
   const CLR = { natural:"White", black:"Black", blue:"Blue", green:"Green", red:"Red", yellow:"Yellow" };
   const colorVals = [...new Set(parts.map(p => (p.dye && CLR[p.color]) ? CLR[p.color] : "White"))];
 
-  const summary = parts.map(p => (p.qty + "x " + p.name + " " + p.x + "x" + p.y + "x" + p.z + "mm" + (p.vs?" +vapor":"") + (p.tumble?" +tumble":"") + (insCount(p)?(" +"+insCount(p)+"ins"):"") + (tapCnt(p)?(" +"+tapCnt(p)+"tap"):"") + (inspCnt(p)?(" +"+inspCnt(p)+"insp"):"") + (p.dye?(" +"+(p.color||"dye")):""))).join("; ");
+  // Notes stays short on purpose: per-part detail (names, sizes, finishing) is on the
+  // traveler PDF attached to this row, so the cell only carries a count + the flags below.
+  const pcs = parts.reduce((s, p) => s + Math.max(1, parseInt(p.qty) || 1), 0);
+  const summary = parts.length
+    ? (parts.length + " part" + (parts.length === 1 ? "" : "s") + " / " + pcs + " pc" + (pcs === 1 ? "" : "s"))
+    : "";
   const acctInfo = (speed==="account") ? (" — " + (body.carrier||"carrier") + " acct " + (body.shipAccount||"(not provided)")) : "";
   const shipMethod = SHIP_SPEEDS[speed].label + (speed==="pickup" ? " (free)" : "") + acctInfo;
   // Keep the WEB- order number as the identifier (like card web orders), tagged with the customer PO.

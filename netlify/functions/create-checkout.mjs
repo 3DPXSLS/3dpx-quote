@@ -155,7 +155,12 @@ export default async (req) => {
   // Color(s) for the Smartsheet MULTI_PICKLIST (valid options: White/Black/Blue/Yellow/Red/Green). "|"-joined.
   const CLR = { natural:"White", black:"Black", blue:"Blue", green:"Green", red:"Red", yellow:"Yellow" };
   const colorList = [...new Set(parts.map(p => (p.dye && CLR[p.color]) ? CLR[p.color] : "White"))].join("|");
-  const summary = parts.map(p => (p.qty + "x " + p.name + " " + p.x + "x" + p.y + "x" + p.z + "mm" + (p.vs?" +vapor":"") + (p.tumble?" +tumble":"") + (insCount(p)?(" +"+insCount(p)+"ins"):"") + (tapCnt(p)?(" +"+tapCnt(p)+"tap"):"") + (inspCnt(p)?(" +"+inspCnt(p)+"insp"):"") + (p.dye?(" +"+(p.color||"dye")):""))).join("; ").slice(0, 460);
+  // Notes stays short on purpose: per-part detail (names, sizes, finishing) is on the
+  // traveler PDF attached to this row, so the cell only carries a count + the flags below.
+  const pcs = parts.reduce((s, p) => s + Math.max(1, parseInt(p.qty) || 1), 0);
+  const summary = parts.length
+    ? (parts.length + " part" + (parts.length === 1 ? "" : "s") + " / " + pcs + " pc" + (pcs === 1 ? "" : "s"))
+    : "";
   let orderNo = (body.orderNo && /^WEB-(?:[0-9]{8}-)?[0-9]{3,6}$/.test(body.orderNo)) ? body.orderNo : null;
   if (!orderNo) { try { const { getStore } = await import("@netlify/blobs"); const { allocateWebOrderNo } = await import("./_orderno.mjs"); orderNo = await allocateWebOrderNo(getStore("orders")); } catch (e) { orderNo = "WEB-" + Math.floor(1000+Math.random()*9000); } }
   const acctInfo = (speed==="account") ? (" — " + ((body.carrier||"carrier") + " acct " + (body.shipAccount||"(not provided)")).slice(0,80)) : "";
