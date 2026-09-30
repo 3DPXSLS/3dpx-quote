@@ -182,7 +182,10 @@ export default async (req) => {
       const { getStore } = await import("@netlify/blobs");
       const listing = await getStore("orders").list({ prefix: orderNo + "/" });
       const real = (listing.blobs || []).filter(b => { const r = b.key.slice((orderNo + "/").length); return r && !r.startsWith(".part-") && !/\.(pdf|json)$/i.test(r); });
-      if (!real.length) return json({ error: "No part files were received for this order. Please re-add your files and try again, or email sales@3dpx.com." }, 409);
+      // Files the widget reported as too big to upload are emailed in instead — they are a legitimate
+      // reason for a part to have no blob, so count them alongside the uploads before refusing.
+      const emailed = Array.isArray(body.oversizeFiles) ? body.oversizeFiles.length : 0;
+      if (real.length + emailed < parts.length) return json({ error: "No part files were received for this order. Please re-add your files and try again, or email sales@3dpx.com." }, 409);
     } catch (e) { /* blob check unavailable — fall through rather than block a real order */ }
   }
 

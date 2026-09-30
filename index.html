@@ -1808,6 +1808,7 @@ async function startPayment(){
         shipAddress:(shipSpeed()==="pickup")?"Pickup at 3DPX (Chicago, IL)":[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "),
         matCert:document.getElementById("matCert").checked,
         quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,certWaive:CERT_WAIVED,note:orderNotesText(),source:INTERNAL?"internal":"web",dueDate:REP_DUE||"",filesOverride:FILES_OVERRIDE,
+        oversizeFiles:parts.filter(oversized).map(p=>p.fileName||p.name),   // too big to upload; coming by email — tells the server not to refuse the order
         returnUrl:document.referrer||location.href})});
     const data=await r.json().catch(()=>({}));
     if(data.url){ ORDER_PLACED=true; dpxProgress("Redirecting to secure checkout…");   // keep the overlay up through the redirect
@@ -1881,7 +1882,8 @@ async function submitPO(approved){
         zip:v("sZip"), shipSpeed:shipSpeed(),
         carrier:(shipSpeed()==="account")?v("sCarrier"):"", shipAccount:(shipSpeed()==="account")?v("sAcct"):"",
         shipAddress:(shipSpeed()==="pickup")?"Pickup at 3DPX (Chicago, IL)":[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "),
-        matCert:document.getElementById("matCert").checked,quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,certWaive:CERT_WAIVED,note:orderNotesText(),source:INTERNAL?"internal":"web",dueDate:REP_DUE||"",filesOverride:FILES_OVERRIDE})});
+        matCert:document.getElementById("matCert").checked,quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,certWaive:CERT_WAIVED,note:orderNotesText(),source:INTERNAL?"internal":"web",dueDate:REP_DUE||"",filesOverride:FILES_OVERRIDE,
+        oversizeFiles:parts.filter(oversized).map(p=>p.fileName||p.name)})});   // too big to upload; coming by email — tells the server not to refuse the order
     const data=await r.json().catch(()=>({}));
     dpxProgressDone();                           // done either way — the result is shown inline below
     if(data.ok){
