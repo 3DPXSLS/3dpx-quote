@@ -1739,6 +1739,32 @@ async function ensureQuoteSaved(){
   }catch(e){}
   return "";
 }
+/* ---- Order progress overlay ----
+   Placing an order runs for 10-20s (quote save, order number, file uploads, five PDFs, then the
+   server call). A disabled button on its own just reads as "greyed out / nothing is happening",
+   and in the rep view the visible control is a tile while the text was going to the hidden button.
+   So show one unmissable blocking overlay that names the current step. */
+function dpxProgress(text){
+  let o=document.getElementById("dpxProg");
+  if(!o){
+    o=document.createElement("div"); o.id="dpxProg";
+    o.style.cssText="position:fixed;inset:0;z-index:99999;background:rgba(15,22,38,.55);display:flex;align-items:center;justify-content:center;font-family:inherit";
+    o.innerHTML='<div style="background:#fff;border-radius:14px;padding:26px 30px;box-shadow:0 18px 50px rgba(0,0,0,.28);text-align:center;min-width:264px;max-width:86%">'
+      +'<div style="width:34px;height:34px;margin:0 auto 14px;border:3px solid #e6eaf2;border-top-color:#f26a21;border-radius:50%;animation:dpxSpin .9s linear infinite"></div>'
+      +'<div id="dpxProgTxt" style="font-size:15px;font-weight:600;color:#1b2a4a">Working…</div>'
+      +'<div style="font-size:12.5px;color:#6b7891;margin-top:7px">Please don\'t close this window.</div></div>';
+    if(!document.getElementById("dpxSpinCss")){const s=document.createElement("style");s.id="dpxSpinCss";s.textContent="@keyframes dpxSpin{to{transform:rotate(360deg)}}";document.head.appendChild(s);}
+    document.body.appendChild(o);
+  }
+  o.style.display="flex";
+  const t=document.getElementById("dpxProgTxt"); if(t) t.textContent=text||"Working…";
+  return o;
+}
+function dpxProgressDone(){const o=document.getElementById("dpxProg"); if(o) o.style.display="none";}
+/* Never leave the overlay covering the page if something throws outside the try blocks below.
+   Order controls stay locked on purpose — a reload is the safe way back, not a silent retry. */
+window.addEventListener("error",dpxProgressDone);
+window.addEventListener("unhandledrejection",dpxProgressDone);
 async function startPayment(){
   if(ORDER_IN_FLIGHT||ORDER_PLACED) return;   // an order is already running or was already placed this session
   syncNotesFromDOM();ensureThumbs();
@@ -1748,22 +1774,26 @@ async function startPayment(){
   ORDER_IN_FLIGHT=true; _setOrderBtns(true);  // lock every order control until this attempt finishes
   const btn=document.getElementById("payBtn"), orig=btn.textContent;
   btn.disabled=true;
+  dpxProgress("Saving your quote…");
   await ensureQuoteSaved();
+  dpxProgress("Reserving your order number…");
   const orderNo=await allocateOrderNo();
   if(LOADED_QUOTE_ID){try{await fetch("/.netlify/functions/promote-quote",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({orderNo,id:LOADED_QUOTE_ID})});}catch(e){}}
-  btn.textContent="Uploading files…";
+  btn.textContent="Uploading files…"; dpxProgress("Uploading your part files…");
   await uploadOrderFiles(orderNo);
   await uploadManifest(orderNo);
-  btn.textContent="Checking files…";
+  btn.textContent="Checking files…"; dpxProgress("Checking your files…");
   if(blockForFiles(await verifyOrderFiles(orderNo))){      // no file, no order — stop before any charge
+    dpxProgressDone();
     ORDER_IN_FLIGHT=false; _setOrderBtns(false); btn.textContent=orig; btn.disabled=false; return;
   }
+  dpxProgress("Building your order documents…");
   await uploadTraveler(orderNo,{});
   await uploadPackingSlip(orderNo,{});
   await uploadQuote(orderNo,{});
   await uploadInventory(orderNo,{});
   await uploadAccounting(orderNo,{});
-  btn.textContent="Starting checkout…";
+  btn.textContent="Starting checkout…"; dpxProgress("Starting secure checkout…");
   try{
     const r=await fetch(CHECKOUT_URL,{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({
@@ -1780,9 +1810,12 @@ async function startPayment(){
         quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,certWaive:CERT_WAIVED,note:orderNotesText(),source:INTERNAL?"internal":"web",dueDate:REP_DUE||"",filesOverride:FILES_OVERRIDE,
         returnUrl:document.referrer||location.href})});
     const data=await r.json().catch(()=>({}));
-    if(data.url){ ORDER_PLACED=true; try{window.top.location.href=data.url;}catch(e){window.location.href=data.url;} return; }
+    if(data.url){ ORDER_PLACED=true; dpxProgress("Redirecting to secure checkout…");   // keep the overlay up through the redirect
+      try{window.top.location.href=data.url;}catch(e){window.location.href=data.url;} return; }
+    dpxProgressDone();
     alert(data.error||"Couldn't start checkout. Please download your quote and email it to sales@3dpx.com.");
   }catch(e){
+    dpxProgressDone();
     alert("Online ordering isn't available right now. Please download your quote and email it to sales@3dpx.com.");
   }
   ORDER_IN_FLIGHT=false; _setOrderBtns(false);   // attempt failed — allow a retry
@@ -1812,16 +1845,20 @@ async function submitPO(approved){
   if(blockForUnpriced()) return;               // PO/approved orders were the leak: unpriced items billed at $0
   ORDER_IN_FLIGHT=true; _setOrderBtns(true);  // lock every order control until this attempt finishes
   const btn=document.getElementById(approved?"approvedBtn":"poBtn"), orig=btn.textContent; btn.disabled=true;
+  dpxProgress("Saving your quote…");
   await ensureQuoteSaved();
+  dpxProgress("Reserving your order number…");
   const orderNo=await allocateOrderNo();
   if(LOADED_QUOTE_ID){try{await fetch("/.netlify/functions/promote-quote",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({orderNo,id:LOADED_QUOTE_ID})});}catch(e){}}
-  btn.textContent="Uploading files…";
+  btn.textContent="Uploading files…"; dpxProgress("Uploading your part files…");
   await uploadOrderFiles(orderNo);
   await uploadManifest(orderNo);
-  btn.textContent="Checking files…";
+  btn.textContent="Checking files…"; dpxProgress("Checking your files…");
   if(blockForFiles(await verifyOrderFiles(orderNo))){      // no file, no order — stop before submitting
+    dpxProgressDone();
     ORDER_IN_FLIGHT=false; _setOrderBtns(false); btn.textContent=orig; btn.disabled=false; return;
   }
+  dpxProgress("Building your order documents…");
   const pf=document.getElementById("poFile");
   if(pf&&pf.files&&pf.files[0]&&pf.files[0].size<=MAX_UPLOAD){
     try{ const buf=await pf.files[0].arrayBuffer();
@@ -1833,6 +1870,7 @@ async function submitPO(approved){
   await uploadInventory(orderNo,{po});
   await uploadAccounting(orderNo,{po});
   btn.textContent=approved?"Creating order…":"Submitting…";
+  dpxProgress(approved?"Creating your order…":"Submitting your PO order…");
   try{
     const r=await fetch("/.netlify/functions/submit-po",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({
@@ -1845,6 +1883,7 @@ async function submitPO(approved){
         shipAddress:(shipSpeed()==="pickup")?"Pickup at 3DPX (Chicago, IL)":[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "),
         matCert:document.getElementById("matCert").checked,quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,certWaive:CERT_WAIVED,note:orderNotesText(),source:INTERNAL?"internal":"web",dueDate:REP_DUE||"",filesOverride:FILES_OVERRIDE})});
     const data=await r.json().catch(()=>({}));
+    dpxProgressDone();                           // done either way — the result is shown inline below
     if(data.ok){
       const msg=approved
         ? "✓ <b>Approved order created.</b> Order "+esc(orderNo)+(po?(" (PO "+esc(po)+")"):"")+" is in the production queue — no card charged, invoice to follow."
@@ -1858,6 +1897,7 @@ async function submitPO(approved){
     }
     alert(data.error||"Couldn't submit the order. Please download the quote and email it to sales@3dpx.com.");
   }catch(e){
+    dpxProgressDone();
     alert("Ordering isn't available right now. Please download the quote and email it to sales@3dpx.com.");
   }
   ORDER_IN_FLIGHT=false; _setOrderBtns(false);   // attempt failed — allow a retry

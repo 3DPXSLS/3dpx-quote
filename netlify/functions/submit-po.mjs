@@ -165,12 +165,12 @@ export default async (req) => {
   const CLR = { natural:"White", black:"Black", blue:"Blue", green:"Green", red:"Red", yellow:"Yellow" };
   const colorVals = [...new Set(parts.map(p => (p.dye && CLR[p.color]) ? CLR[p.color] : "White"))];
 
-  // Notes stays short on purpose: per-part detail (names, sizes, finishing) is on the
-  // traveler PDF attached to this row, so the cell only carries a count + the flags below.
-  const pcs = parts.reduce((s, p) => s + Math.max(1, parseInt(p.qty) || 1), 0);
-  const summary = parts.length
-    ? (parts.length + " part" + (parts.length === 1 ? "" : "s") + " / " + pcs + " pc" + (pcs === 1 ? "" : "s"))
-    : "";
+  // Notes carries only what a person actually wrote — the order note and any per-part notes,
+  // each labelled with its part. Payment type, PO, ship method and the part list are not
+  // repeated here: they have their own columns, the Web Orders Log, or the attached traveler PDF.
+  const partNotes = parts
+    .map(p => { const n = String(p.notes || "").trim(); return n ? (String(p.name || "part").trim() + ": " + n) : ""; })
+    .filter(Boolean);
   const acctInfo = (speed==="account") ? (" — " + (body.carrier||"carrier") + " acct " + (body.shipAccount||"(not provided)")) : "";
   const shipMethod = SHIP_SPEEDS[speed].label + (speed==="pickup" ? " (free)" : "") + acctInfo;
   // Keep the WEB- order number as the identifier (like card web orders), tagged with the customer PO.
@@ -197,13 +197,8 @@ export default async (req) => {
     if (claimStore) { console.log("submit-po idempotent skip (conflict):", webNo); return json({ ok: true, order: po, duplicate: true }); }
   }
 
-  const notesPrefix = approved
-    ? ("*** WEB APPROVED ORDER — no card — written approval on file; invoice on terms ***" + (po ? (" | Customer PO: " + po) : ""))
-    : ("*** WEB PO / INVOICE ORDER — UNPAID — verify credit & confirm price before production *** | Customer PO: " + po);
-  const engTxt = engHours > 0 ? ("Engineering services " + engHours + "h @ $" + RULES.engRate + "/hr") : "";
-  const detail = [summary, engTxt].filter(Boolean).join(" | ") || "(no parts)";
   const custNote = String(body.note || "").trim();
-  const notes = (notesPrefix + " | " + detail + " | " + shipMethod + (body.matCert?(certWaive?" | Material cert (fee waived)":" | Material cert"):"") + (taxExemptQ?" | TAX EXEMPT":"") + (body.filesOverride?" | *** FILES TO FOLLOW — no print files uploaded; do not schedule until received ***":"") + (custNote?(" | Customer note: " + custNote):"")).slice(0, 495);
+  const notes = [custNote, ...partNotes].filter(Boolean).join(" | ").slice(0, 495);
 
   // Safety net: never record an order for printable parts when nothing was actually uploaded.
   // The widget blocks this per-part before it gets here; this catches a stale tab or a bypassed client.

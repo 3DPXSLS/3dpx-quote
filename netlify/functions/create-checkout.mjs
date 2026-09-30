@@ -155,20 +155,25 @@ export default async (req) => {
   // Color(s) for the Smartsheet MULTI_PICKLIST (valid options: White/Black/Blue/Yellow/Red/Green). "|"-joined.
   const CLR = { natural:"White", black:"Black", blue:"Blue", green:"Green", red:"Red", yellow:"Yellow" };
   const colorList = [...new Set(parts.map(p => (p.dye && CLR[p.color]) ? CLR[p.color] : "White"))].join("|");
-  // Notes stays short on purpose: per-part detail (names, sizes, finishing) is on the
-  // traveler PDF attached to this row, so the cell only carries a count + the flags below.
-  const pcs = parts.reduce((s, p) => s + Math.max(1, parseInt(p.qty) || 1), 0);
-  const summary = parts.length
-    ? (parts.length + " part" + (parts.length === 1 ? "" : "s") + " / " + pcs + " pc" + (pcs === 1 ? "" : "s"))
-    : "";
+  // Notes carries only what a person actually wrote — the order note and any per-part notes,
+  // each labelled with its part. Payment type, PO, ship method and the part list are not
+  // repeated here: they have their own columns, the Web Orders Log, or the attached traveler PDF.
+  const partNotes = parts
+    .map(p => { const n = String(p.notes || "").trim(); return n ? (String(p.name || "part").trim() + ": " + n) : ""; })
+    .filter(Boolean);
   let orderNo = (body.orderNo && /^WEB-(?:[0-9]{8}-)?[0-9]{3,6}$/.test(body.orderNo)) ? body.orderNo : null;
   if (!orderNo) { try { const { getStore } = await import("@netlify/blobs"); const { allocateWebOrderNo } = await import("./_orderno.mjs"); orderNo = await allocateWebOrderNo(getStore("orders")); } catch (e) { orderNo = "WEB-" + Math.floor(1000+Math.random()*9000); } }
   const acctInfo = (speed==="account") ? (" — " + ((body.carrier||"carrier") + " acct " + (body.shipAccount||"(not provided)")).slice(0,80)) : "";
   const shipMethodLabel = SHIP_SPEEDS[speed].label + (speed==="pickup" ? " (free)" : "") + acctInfo;
-  const engTxt = engHours > 0 ? ("Engineering services " + engHours + "h @ $" + RULES.engRate + "/hr") : "";
-  const detail = [summary, engTxt].filter(Boolean).join(" | ") || "SLS parts";
   const custNote = String(body.note || "").trim();
-  const notes = (detail + " | " + shipMethodLabel + (body.matCert?(certWaive?" | Material cert (fee waived)":" | Material cert"):"") + (taxExempt?" | TAX EXEMPT":"") + (body.filesOverride?" | *** FILES TO FOLLOW — no print files uploaded; do not schedule until received ***":"") + (custNote?(" | Customer note: " + custNote):"") + " | Paid via Stripe").slice(0, 495);
+  const notes = [custNote, ...partNotes].filter(Boolean).join(" | ").slice(0, 495);
+  // Shown to the customer on the Stripe checkout page (not the Smartsheet Notes cell).
+  const pcs = parts.reduce((s, p) => s + Math.max(1, parseInt(p.qty) || 1), 0);
+  const engTxt = engHours > 0 ? ("Engineering services " + engHours + "h @ $" + RULES.engRate + "/hr") : "";
+  const detail = [
+    parts.length ? (parts.length + " part" + (parts.length === 1 ? "" : "s") + " / " + pcs + " pc" + (pcs === 1 ? "" : "s")) : "",
+    engTxt
+  ].filter(Boolean).join(" | ") || "SLS parts";
 
   // Safety net: never take a card payment for printable parts when nothing was actually uploaded.
   // The widget blocks this per-part before it gets here; this catches a stale tab or a bypassed client.
