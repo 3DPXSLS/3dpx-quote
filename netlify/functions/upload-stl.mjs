@@ -6,7 +6,7 @@
 import { getStore } from "@netlify/blobs";
 
 const CHUNK_MAX = 5 * 1024 * 1024;    // max bytes per single request (one chunk)
-const FINAL_MAX = 32 * 1024 * 1024;   // max reassembled file size
+const FINAL_MAX = 80 * 1024 * 1024;   // max reassembled file size (keep >= the widget's MAX_UPLOAD, currently 75 MB)
 
 export default async (req) => {
   if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });

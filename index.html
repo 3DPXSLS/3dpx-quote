@@ -642,7 +642,7 @@ function geoToSTL(pos){
 
 /* ---- state ---- */
 let parts=[], pid=0;
-const MAX_UPLOAD=30*1024*1024, MAX_UPLOAD_MB=30;  // 30 MB ceiling; big files upload in chunks (below) to bypass Netlify's ~4.5MB function-body cap
+const MAX_UPLOAD=75*1024*1024, MAX_UPLOAD_MB=75;  // 75 MB ceiling; big files upload in chunks (below) to bypass Netlify's ~4.5MB function-body cap. Server FINAL_MAX in upload-stl.mjs must stay >= this.
 const UPLOAD_CHUNK=3.5*1024*1024;                  // per-request chunk size, safely under the Netlify function body limit
 function oversized(p){return !!(p&&p.fileBuf&&p.fileBuf.byteLength>MAX_UPLOAD);}
 function fileMB(buf){return (buf.byteLength/1048576).toFixed(1);}
@@ -1942,15 +1942,37 @@ render();
 const _URLP=new URLSearchParams(location.search);
 const INTERNAL=_URLP.has("internal");
 const INTERNAL_TOKEN=_URLP.get("internal")||"1";
+/* ---- Quote file upload (shared by the rep save and the customer save) ----
+   Returns a list of files that did NOT make it to the server, so the caller can say so.
+   This used to skip oversized files and swallow upload errors silently: the quote saved,
+   the link worked, and nobody learned the print files were missing until production asked
+   for them (Q-SN8NGH — two door panels, never uploaded, discovered a week later). */
+async function saveQuoteFiles(id){
+  const missed=[];
+  for(let i=0;i<parts.length;i++){const p=parts[i];
+    if(p.fileBuf){
+      if(p.fileBuf.byteLength>MAX_UPLOAD) missed.push((p.fileName||p.name)+" — "+fileMB(p.fileBuf)+" MB, over the "+MAX_UPLOAD_MB+" MB limit");
+      else if(!await putFile(id,i,p.fileName||(p.name+".stl"),p.fileBuf)) missed.push((p.fileName||(p.name+".stl"))+" — upload failed");
+    }
+    if(p.drawingBuf){
+      if(p.drawingBuf.byteLength>MAX_UPLOAD) missed.push((p.drawingName||(p.name+".pdf"))+" — "+fileMB(p.drawingBuf)+" MB, over the "+MAX_UPLOAD_MB+" MB limit");
+      else if(!await putFile(id,"draw"+i,"drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf")),p.drawingBuf)) missed.push((p.drawingName||(p.name+".pdf"))+" — upload failed");
+    }
+  }
+  return missed;
+}
+function warnMissedQuoteFiles(missed,id){
+  if(!missed||!missed.length) return;
+  alert("Quote "+id+" was saved, but "+missed.length+" file"+(missed.length>1?"s were":" was")+" NOT uploaded:\n\n• "+missed.join("\n• ")
+    +"\n\nThe quote and its link are fine, but production has no file"+(missed.length>1?"s":"")+" for "+(missed.length>1?"these parts":"this part")+"."
+    +"\n\nPlease email "+(missed.length>1?"them":"it")+" to sales@3dpx.com with the quote number, or re-save once the file"+(missed.length>1?"s are":" is")+" under "+MAX_UPLOAD_MB+" MB.");
+}
 async function saveQuote(){
   syncNotesFromDOM();ensureThumbs();
   if(!quotable()){alert("Add a part or enter engineering hours first.");return;}
   const btn=document.getElementById("saveQuoteBtn"),orig=btn.textContent;btn.disabled=true;btn.textContent="Saving…";
   const id=LOADED_QUOTE_ID||("Q-"+Math.random().toString(36).slice(2,8).toUpperCase());  // reuse id when editing a loaded quote → same customer link updates
-  for(let i=0;i<parts.length;i++){const p=parts[i];
-    if(p.fileBuf&&p.fileBuf.byteLength<=MAX_UPLOAD){try{await putFile(id,i,p.fileName||(p.name+".stl"),p.fileBuf);}catch(e){}}
-    if(p.drawingBuf&&p.drawingBuf.byteLength<=MAX_UPLOAD){try{await putFile(id,"draw"+i,"drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf")),p.drawingBuf);}catch(e){}}
-  }
+  const missed=await saveQuoteFiles(id);
   try{ const qd=buildQuotePDF(id,{}); if(qd) await putFile(id,"quote","quote-"+id+".pdf",qd.output("arraybuffer")); }catch(e){}   // attach the quote PDF to the quote's Smartsheet row too
   try{
     const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -1978,6 +2000,7 @@ async function saveQuote(){
         box.scrollIntoView({behavior:"smooth",block:"center"});
       }
       try{const doc=buildQuotePDF(data.id,{});if(doc)doc.save("quote-"+data.id+".pdf");}catch(e){}
+      warnMissedQuoteFiles(missed,data.id);          // say so if a print file didn't make it
     } else { alert(data.error||"Could not save the quote."); }
   }catch(e){ alert("Could not save the quote right now."); }
   btn.textContent=orig;btn.disabled=false;
@@ -1990,10 +2013,7 @@ async function customerSaveQuote(){
   if(!email){alert("Please enter your email under Contact details so we can save and send your quote.");const ce=document.getElementById("cEmail");if(ce)ce.focus();return;}
   const btn=document.getElementById("custSaveBtn"),orig=btn.textContent;btn.disabled=true;btn.textContent="Saving…";
   const id="Q-"+Math.random().toString(36).slice(2,8).toUpperCase();
-  for(let i=0;i<parts.length;i++){const p=parts[i];
-    if(p.fileBuf&&p.fileBuf.byteLength<=MAX_UPLOAD){try{await putFile(id,i,p.fileName||(p.name+".stl"),p.fileBuf);}catch(e){}}
-    if(p.drawingBuf&&p.drawingBuf.byteLength<=MAX_UPLOAD){try{await putFile(id,"draw"+i,"drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf")),p.drawingBuf);}catch(e){}}
-  }
+  const missed=await saveQuoteFiles(id);
   try{ const qd=buildQuotePDF(id,{}); if(qd) await putFile(id,"quote","quote-"+id+".pdf",qd.output("arraybuffer")); }catch(e){}   // attach the quote PDF to the quote's Smartsheet row too
   try{
     const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -2008,6 +2028,7 @@ async function customerSaveQuote(){
       if(box){box.style.display="block";
         box.innerHTML='<b style="color:#1b2a4a">Quote saved — reference '+data.id+'</b><div style="font-size:12px;color:#5a6678;margin:2px 0 8px">We’ve emailed a copy to '+esc(email)+' (check spam). To change anything, reply to that email or call (312) 896-3399 and mention '+data.id+'. Reopen it any time:</div><input readonly value="'+link+'" onclick="this.select()" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #cbd5e6;border-radius:6px;font-size:12px">';
         box.scrollIntoView({behavior:"smooth",block:"center"});}
+      warnMissedQuoteFiles(missed,data.id);          // say so if a print file didn't make it
     } else { alert(data.error||"Could not save the quote."); }
   }catch(e){ alert("Could not save the quote right now."); }
   btn.textContent=orig;btn.disabled=false;
