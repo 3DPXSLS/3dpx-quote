@@ -1949,15 +1949,23 @@ const INTERNAL_TOKEN=_URLP.get("internal")||"1";
    for them (Q-SN8NGH — two door panels, never uploaded, discovered a week later). */
 async function saveQuoteFiles(id){
   const missed=[];
+  // Big files upload in 3.5 MB chunks and can run for minutes. Without this the only feedback
+  // was the button reading "Saving…", which is indistinguishable from a frozen page — Wildfactory
+  // abandoned a quote over it (Oct 2026) and emailed the files instead.
+  const queue=[];
   for(let i=0;i<parts.length;i++){const p=parts[i];
-    if(p.fileBuf){
-      if(p.fileBuf.byteLength>MAX_UPLOAD) missed.push((p.fileName||p.name)+" — "+fileMB(p.fileBuf)+" MB, over the "+MAX_UPLOAD_MB+" MB limit");
-      else if(!await putFile(id,i,p.fileName||(p.name+".stl"),p.fileBuf)) missed.push((p.fileName||(p.name+".stl"))+" — upload failed");
-    }
-    if(p.drawingBuf){
-      if(p.drawingBuf.byteLength>MAX_UPLOAD) missed.push((p.drawingName||(p.name+".pdf"))+" — "+fileMB(p.drawingBuf)+" MB, over the "+MAX_UPLOAD_MB+" MB limit");
-      else if(!await putFile(id,"draw"+i,"drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf")),p.drawingBuf)) missed.push((p.drawingName||(p.name+".pdf"))+" — upload failed");
-    }
+    if(p.fileBuf)    queue.push({kind:"part", i, p, buf:p.fileBuf,    label:p.fileName||(p.name+".stl")});
+    if(p.drawingBuf) queue.push({kind:"draw", i, p, buf:p.drawingBuf, label:p.drawingName||(p.name+".pdf")});
+  }
+  const total=queue.length;
+  for(let n=0;n<total;n++){
+    const q=queue[n], step="Uploading file "+(n+1)+" of "+total+" — "+q.label+" ("+fileMB(q.buf)+" MB)…";
+    dpxProgress(step);
+    if(q.buf.byteLength>MAX_UPLOAD){ missed.push(q.label+" — "+fileMB(q.buf)+" MB, over the "+MAX_UPLOAD_MB+" MB limit"); continue; }
+    const ok = q.kind==="part"
+      ? await putFile(id,q.i,q.p.fileName||(q.p.name+".stl"),q.buf)
+      : await putFile(id,"draw"+q.i,"drawing-"+(q.i+1)+"-"+(q.p.drawingName||(q.p.name+".pdf")),q.buf);
+    if(!ok) missed.push(q.label+" — upload failed");
   }
   return missed;
 }
@@ -1972,7 +1980,9 @@ async function saveQuote(){
   if(!quotable()){alert("Add a part or enter engineering hours first.");return;}
   const btn=document.getElementById("saveQuoteBtn"),orig=btn.textContent;btn.disabled=true;btn.textContent="Saving…";
   const id=LOADED_QUOTE_ID||("Q-"+Math.random().toString(36).slice(2,8).toUpperCase());  // reuse id when editing a loaded quote → same customer link updates
+  dpxProgress("Preparing your quote…");
   const missed=await saveQuoteFiles(id);
+  dpxProgress("Saving the quote…");
   try{ const qd=buildQuotePDF(id,{}); if(qd) await putFile(id,"quote","quote-"+id+".pdf",qd.output("arraybuffer")); }catch(e){}   // attach the quote PDF to the quote's Smartsheet row too
   try{
     const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -2000,9 +2010,11 @@ async function saveQuote(){
         box.scrollIntoView({behavior:"smooth",block:"center"});
       }
       try{const doc=buildQuotePDF(data.id,{});if(doc)doc.save("quote-"+data.id+".pdf");}catch(e){}
+      dpxProgressDone();
       warnMissedQuoteFiles(missed,data.id);          // say so if a print file didn't make it
-    } else { alert(data.error||"Could not save the quote."); }
-  }catch(e){ alert("Could not save the quote right now."); }
+    } else { dpxProgressDone(); alert(data.error||"Could not save the quote."); }
+  }catch(e){ dpxProgressDone(); alert("Could not save the quote right now."); }
+  dpxProgressDone();
   btn.textContent=orig;btn.disabled=false;
 }
 /* Customer-facing save: mints a fresh quote, stores it (public — rep pricing fields stripped server-side),
@@ -2013,7 +2025,9 @@ async function customerSaveQuote(){
   if(!email){alert("Please enter your email under Contact details so we can save and send your quote.");const ce=document.getElementById("cEmail");if(ce)ce.focus();return;}
   const btn=document.getElementById("custSaveBtn"),orig=btn.textContent;btn.disabled=true;btn.textContent="Saving…";
   const id="Q-"+Math.random().toString(36).slice(2,8).toUpperCase();
+  dpxProgress("Preparing your quote…");
   const missed=await saveQuoteFiles(id);
+  dpxProgress("Saving your quote…");
   try{ const qd=buildQuotePDF(id,{}); if(qd) await putFile(id,"quote","quote-"+id+".pdf",qd.output("arraybuffer")); }catch(e){}   // attach the quote PDF to the quote's Smartsheet row too
   try{
     const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -2028,9 +2042,11 @@ async function customerSaveQuote(){
       if(box){box.style.display="block";
         box.innerHTML='<b style="color:#1b2a4a">Quote saved — reference '+data.id+'</b><div style="font-size:12px;color:#5a6678;margin:2px 0 8px">We’ve emailed a copy to '+esc(email)+' (check spam). To change anything, reply to that email or call (312) 896-3399 and mention '+data.id+'. Reopen it any time:</div><input readonly value="'+link+'" onclick="this.select()" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #cbd5e6;border-radius:6px;font-size:12px">';
         box.scrollIntoView({behavior:"smooth",block:"center"});}
+      dpxProgressDone();
       warnMissedQuoteFiles(missed,data.id);          // say so if a print file didn't make it
-    } else { alert(data.error||"Could not save the quote."); }
-  }catch(e){ alert("Could not save the quote right now."); }
+    } else { dpxProgressDone(); alert(data.error||"Could not save the quote."); }
+  }catch(e){ dpxProgressDone(); alert("Could not save the quote right now."); }
+  dpxProgressDone();
   btn.textContent=orig;btn.disabled=false;
 }
 async function loadQuote(id){
