@@ -7,7 +7,7 @@
 //   SMARTSHEET_SHEET_ID    - (optional) target sheet; defaults to SLS Jobs.
 
 import crypto from "node:crypto";
-import { sendOrderEmail } from "./_notify.mjs";
+import { sendOrderEmail, sendCustomerOrderEmail } from "./_notify.mjs";
 import { logOrder } from "./_orderlog.mjs";
 import { markQuoteOrdered } from "./_quotelog.mjs";
 import { attachOrderFiles } from "./_attach.mjs";
@@ -107,6 +107,20 @@ export default async (req) => {
     kind: "Card order", orderNo: m.order_no, company: m.company || m.customer_name,
     contact: contactVal, price: price, tax: taxAmt, pieces: m.total_parts,
     delivery: m.ship_method, due, payment: "Paid via Stripe", notes: m.notes,
+  });
+  // Confirm to the customer. Line items were stashed by create-checkout (Stripe metadata is too small).
+  let items = [];
+  if (m.order_no) {
+    try {
+      const { getStore } = await import("@netlify/blobs");
+      const d = await getStore("orders").get("ORDERDATA/" + m.order_no + ".json", { type: "json" });
+      if (d && Array.isArray(d.items)) items = d.items;
+    } catch (e) { /* send without the parts table */ }
+  }
+  await sendCustomerOrderEmail({
+    kind: "card", to: m.customer_email || (s.customer_details && s.customer_details.email),
+    name: m.customer_name, orderNo: m.order_no, amount: (s.amount_total || 0) / 100, tax: taxAmt,
+    pieces: m.total_parts, delivery: m.ship_method, shipTo: m.shipping_address, due, items,
   });
   const logRow = await logOrder({
     orderNo: m.order_no, type: "Card", source: m.source === "internal" ? "Internal" : "Web",

@@ -189,6 +189,15 @@ export default async (req) => {
     } catch (e) { /* blob check unavailable — fall through rather than block a real order */ }
   }
 
+  // Stash the line items so the Stripe webhook can list them in the customer's confirmation email —
+  // Stripe metadata caps each value at 500 chars, far too small for a parts list. Stored outside the
+  // WEB-… order folder so the attach sweeper never mistakes it for an order file. Best-effort.
+  try {
+    const { getStore } = await import("@netlify/blobs");
+    const { orderItems } = await import("./_notify.mjs");
+    await getStore("orders").setJSON("ORDERDATA/" + orderNo + ".json", { items: orderItems(parts), at: new Date().toISOString() });
+  } catch (e) { /* the confirmation email just won't list the parts */ }
+
   let ret = (body.returnUrl && /^https?:\/\//.test(body.returnUrl)) ? body.returnUrl : (req.headers.get("origin") || "");
   const sep = ret.includes("?") ? "&" : "?";
 

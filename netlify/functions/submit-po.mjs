@@ -3,7 +3,7 @@
 // Env: SMARTSHEET_TOKEN (required), SMARTSHEET_SHEET_ID (optional; defaults to SLS Jobs).
 // Pricing is recomputed here (same model as create-checkout.mjs) for the quoted amount on record.
 
-import { sendOrderEmail } from "./_notify.mjs";
+import { sendOrderEmail, sendCustomerOrderEmail, orderItems } from "./_notify.mjs";
 import { logOrder } from "./_orderlog.mjs";
 import { markQuoteOrdered } from "./_quotelog.mjs";
 import { attachOrderFiles } from "./_attach.mjs";
@@ -253,6 +253,12 @@ export default async (req) => {
     kind: approved ? "Approved order" : "PO order", orderNo: orderIdent,
     company: body.company || body.name, contact: contactVal, price,
     pieces: totalParts, delivery: shipMethod, due, payment: payLabel, notes,
+  });
+  // Confirm to the customer (best-effort; skipped for internal 3dpx.com placeholder emails).
+  await sendCustomerOrderEmail({
+    kind: approved ? "approved" : "po", to: body.email, name: body.name, orderNo: webNo, po,
+    amount: price, pieces: totalParts, delivery: shipMethod, shipTo: body.shipAddress, due,
+    items: orderItems(parts),
   });
   const logRow = await logOrder({
     orderNo: webNo, type: approved ? "Approved" : "PO", source: body.source === "internal" ? "Internal" : "Web",
