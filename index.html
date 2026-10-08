@@ -921,35 +921,72 @@ function applyUnit(p){
   p.z=+(p.baseZ*f).toFixed(1);
   p.vol=+(p.baseVol*f*f*f).toFixed(2);
 }
-function handleFiles(files){[...files].forEach(file=>{
-  const ext=(file.name.split(".").pop()||"").toLowerCase();
-  const rd=new FileReader();
-  rd.onload=async e=>{
-    const buf=e.target.result;
-    if(ext==="stp"||ext==="step"){
+/* ---- Adding files ----
+   This used to read every dropped file in parallel with nothing on screen. STEP files are measured
+   by a CAD engine (OpenCASCADE, WASM) that blocks the page while it works, and the first STEP also
+   downloads that engine — so dropping a batch of STEPs froze the page for minutes with no sign of
+   life. Customers assumed it had hung (Wildfactory, Oct 2026: 43 STEPs, gave up, emailed instead).
+   Now: one file at a time, a running counter, and ONE summary at the end rather than an alert per
+   problem file. Batches dropped while another is still being added are queued, not run in parallel. */
+let _addChain=Promise.resolve();
+function handleFiles(files){
+  const list=[...files]; if(!list.length) return _addChain;
+  _addChain=_addChain.then(()=>_addFiles(list)).catch(()=>{});
+  return _addChain;
+}
+// Let the browser repaint the overlay text before the next heavy (page-blocking) parse starts.
+// requestAnimationFrame alone is NOT safe here: browsers pause it in hidden/background tabs, so a
+// customer who dropped files and switched tabs would come back to a stalled upload. Race it with
+// a plain timer so it paints when visible and still moves on when hidden.
+const _paint=()=>new Promise(r=>{let done=false;const go=()=>{if(!done){done=true;r();}};
+  try{requestAnimationFrame(()=>setTimeout(go,0));}catch(e){}
+  setTimeout(go,60);});
+async function _addFiles(list){
+  const total=list.length, notes=[];
+  let added=0;
+  try{
+  for(let n=0;n<total;n++){
+    const file=list[n], ext=(file.name.split(".").pop()||"").toLowerCase();
+    const isStep=(ext==="stp"||ext==="step");
+    const base=file.name.replace(/\.(stl|stp|step)$/i,"");
+    const head=(total>1?("Adding file "+(n+1)+" of "+total+" — "):"Adding ")+file.name+" ("+(file.size/1048576).toFixed(1)+" MB)";
+    dpxProgress(head+(isStep?" — measuring the STEP model…":"…"));
+    await _paint();
+    let buf;
+    try{ buf=await file.arrayBuffer(); }
+    catch(e){ notes.push("Couldn't read "+file.name+"."); continue; }
+    if(isStep){
+      if(!_occtPromise){ dpxProgress("Loading the STEP reader (one-time, takes a few seconds)…"); await _paint(); }
       try{
         const r=await stepToGeom(buf); if(!r.count) throw 0;
         if(r.bodies>1 && r.overlap){
-          parts.push({id:++pid,name:file.name.replace(/\.(stp|step)$/i,""),fileName:file.name,fileBuf:buf,
+          parts.push({id:++pid,name:base,fileName:file.name,fileBuf:buf,
             x:+r.x.toFixed(1),y:+r.y.toFixed(1),z:+r.z.toFixed(1),vol:0,qty:1,color:"natural",dye:false,vs:false,vsPrice:null,tumble:false,inserts:false,insertQty:1,tapped:false,tapQty:1,inspect:false,inspQty:1,geo:null,area:0,thumb:renderThumb(r.pos),manual:true,assembly:r.bodies});
-          render();
-          alert(file.name+" contains "+r.bodies+" overlapping bodies, so we can't auto-measure its volume reliably (assemblies can double-count shared material). It's added as a manual-quote item — our team will confirm the price. Tip: save each solid as its own STEP file for an instant quote.");
-          return;
+          added++;
+          notes.push(file.name+" contains "+r.bodies+" overlapping bodies, so its volume can't be measured reliably. It's added as a manual-quote item — our team will confirm the price. (Tip: save each solid as its own STEP file for an instant quote.)");
+          continue;
         }
-        const part=partFromGeom(file,buf,r); if(r.bodies>1) part.assembly=r.bodies; parts.push(part); createViewer(part); render();
+        const part=partFromGeom(file,buf,r); if(r.bodies>1) part.assembly=r.bodies; parts.push(part); createViewer(part); added++;
       }catch(err){
-        parts.push({id:++pid,name:file.name.replace(/\.(stp|step)$/i,""),fileName:file.name,fileBuf:buf,
+        parts.push({id:++pid,name:base,fileName:file.name,fileBuf:buf,
           x:0,y:0,z:0,vol:0,qty:1,color:"natural",dye:false,vs:false,vsPrice:null,tumble:false,inserts:false,insertQty:1,tapped:false,tapQty:1,inspect:false,inspQty:1,geo:null,area:0,thumb:null,manual:true});
-        render();
-        alert("We couldn't auto-measure "+file.name+" (complex STEP). It's added as a manual-quote item — our team will price it, and card checkout is paused until it's priced.");
+        added++;
+        notes.push("We couldn't auto-measure "+file.name+" (complex STEP). It's added as a manual-quote item — our team will price it, and card checkout is paused until it's priced.");
       }
-      return;
+      continue;
     }
-    try{const r=parseSTL(buf);if(!r.count)throw 0;
-      const part=partFromGeom(file,buf,r); parts.push(part); createViewer(part); render();
-    }catch(err){alert("Couldn't read "+file.name+". Please check it's a valid STL or STEP file.");}
-  };
-  rd.readAsArrayBuffer(file);});}
+    try{
+      const r=parseSTL(buf); if(!r.count) throw 0;
+      const part=partFromGeom(file,buf,r); parts.push(part); createViewer(part); added++;
+    }catch(err){ notes.push("Couldn't read "+file.name+". Please check it's a valid STL or STEP file."); }
+  }
+  dpxProgress("Updating your quote…"); await _paint();
+  } finally {
+    render();            // always show whatever was added, even if something above threw
+    dpxProgressDone();   // and never leave the overlay covering the page
+  }
+  if(notes.length) alert((added?(added+" of "+total+" file"+(total>1?"s":"")+" added.\n\n"):"")+notes.join("\n\n"));
+}
 
 /* ---- render ---- */
 const money=n=>"$"+n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
