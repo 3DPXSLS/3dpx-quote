@@ -200,14 +200,14 @@
     <div style="font-weight:700;color:#1b2a4a;margin-bottom:8px">Rep tools <span style="font-weight:500;color:#8a95a8;font-size:12px">· internal only</span></div>
     <div class="contact" style="margin:0">
       <div><label>Engineering services (hours @ $125/hr)</label><input id="engHours" type="number" min="0" step="0.25" placeholder="0"></div>
-      <div><label>Additional discount (% off order)</label><input id="addlDisc" type="number" min="0" max="100" step="0.5" placeholder="0"></div>
-      <div><label>Custom due date (optional)</label><input id="repDue" type="date"></div>
-      <div><label>Custom lead time (business days, optional)</label><input id="repLead" type="number" min="1" max="120" step="1" placeholder="Auto">
+      <div><label style="color:#c62828;font-weight:800">Additional discount (% off order)</label><input id="addlDisc" type="number" min="0" max="100" step="0.5" placeholder="0" style="color:#c62828;font-weight:700"></div>
+      <div><label style="color:#1b2a4a;font-weight:800">Custom due date (optional)</label><input id="repDue" type="date"></div>
+      <div><label style="color:#1b2a4a;font-weight:800">Custom lead time (business days, optional)</label><input id="repLead" type="number" min="1" max="120" step="1" placeholder="Auto">
         <div id="repLeadHint" style="font-size:11.5px;color:#5a6678;margin-top:4px;min-height:14px"></div></div>
       <div><label>Tax status</label><label class="repCheck"><input type="checkbox" id="taxExempt"> Tax exempt — no sales tax</label></div>
       <div><label>Material cert fee</label><label class="repCheck"><input type="checkbox" id="certWaive"> Waive $100 fee — cert still provided</label></div>
       <div><label>Missing files</label><label class="repCheck"><input type="checkbox" id="fileOverride"> Order without files — files coming separately</label></div>
-      <div><label>Material price check</label><div id="perCcReadout" style="padding:9px 0;font-weight:700;color:#1b2a4a">$0.00 / cm³</div></div>
+      <div><label>Material price check</label><div id="perCcReadout" style="padding:4px 0 0;color:#1b2a4a"><span style="font-size:24px;font-weight:800">$0.00 / cm³</span></div></div>
     </div>
     <div style="font-size:11px;color:#8a95a8;margin-top:6px">$/cm³ = discounted parts value ÷ total printed volume. The additional discount reduces the customer's total and the amount charged. Visible only in the internal tool.</div>
   </div>
@@ -1154,7 +1154,12 @@ function render(){
     ["poBtn","approvedBtn"].forEach(id=>{const b=document.getElementById(id);
       if(b){b.disabled=hasUnpriced; b.style.opacity=hasUnpriced?"0.5":""; b.title=hasUnpriced?"An item needs a manual quote — email us and we'll price it and send a payment link":"";}});
   }
-  const pcEl=document.getElementById("perCcReadout"); if(pcEl) pcEl.textContent="$"+t.perCc.toFixed(2)+" / cm³"+(t.addlPct>0?("  ·  addl "+t.addlPct+"% (−"+money(t.addlDisc)+")"):"")+"  ·  vol "+Math.round(t.totalVol)+" cm³";
+  // $/cm³ shown large (it's the number reps eyeball); discount + volume stay small underneath. Numbers only — safe for innerHTML.
+  const pcEl=document.getElementById("perCcReadout"); if(pcEl) pcEl.innerHTML=
+    '<span style="font-size:24px;font-weight:800">$'+t.perCc.toFixed(2)+' / cm³</span>'
+    +'<div style="font-size:12.5px;font-weight:600;color:#5a6678;margin-top:2px">'
+    +(t.addlPct>0?('<span style="color:#c62828">addl '+(+t.addlPct)+'% (−'+money(t.addlDisc)+')</span>  ·  '):'')
+    +'vol '+Math.round(t.totalVol)+' cm³</div>';
   const ov=nextValueTier(t.gross),on=document.getElementById("orderNudge");
   if(ov&&parts.length){on.style.display="block";
     on.innerHTML=`🎯 Add <b>${money(ov.v-t.gross)}</b> more in parts to unlock <b>${ov.d}% off your entire order</b>.`;}
