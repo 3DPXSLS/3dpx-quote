@@ -10,6 +10,13 @@ const LOG = { sheet: "5963104906071940", order: 7031647501586308, email: 8391980
 const QT = { sheet: "8909229715836804", quote: 2297212512276356, status: 6800812139646852, email: 3423112419118980,
   total: 608362652012420, pieces: 5111962279382916, items: 2860162465697668, created: 3986062372540292,
   customer: 1171312605433732 };
+// Production status is read LIVE from the source sheets on every page load, not from the Orders Log's
+// synced copy — that copy depends on an hourly job, and when it stalled every order showed "Received".
+//   SLS Jobs = active work; "SLS Jobs Complete 6 mo" = where finished jobs are moved.
+const JOBS = { sheet: "7474902212077444", order: 2573430013880196, status: 3699329920722820 };
+const DONE = { sheet: "253549607866244",  order: 8712114298113924, status: 2062069196869508 };
+const WEB_RE = /WEB-(?:\d{8}-)?\d{3,6}/i;
+const webOf = s => { const m = String(s || "").toUpperCase().match(WEB_RE); return m ? m[0] : ""; };
 
 // SLS Jobs production status → wording a customer should see (no internal states like QA holds).
 function customerStatus(s) {
@@ -42,25 +49,40 @@ export default async (req) => {
   if (!token) return json({ error: "Not configured." }, 503);
 
   try {
-    const [logRows, qRows] = await Promise.all([
+    const [logRows, qRows, jobRows, doneRows] = await Promise.all([
       readSheet(token, LOG.sheet, [LOG.order, LOG.email, LOG.quoteId, LOG.logged, LOG.status, LOG.po, LOG.pieces, LOG.sales, LOG.type, LOG.contact]),
       readSheet(token, QT.sheet, [QT.quote, QT.status, QT.email, QT.total, QT.pieces, QT.items, QT.created, QT.customer]),
+      readSheet(token, JOBS.sheet, [JOBS.order, JOBS.status]).catch(() => []),
+      readSheet(token, DONE.sheet, [DONE.order, DONE.status]).catch(() => []),
     ]);
+    // WEB number → real production status. Active work wins over the archive; on duplicates prefer
+    // a row that's still open over one that's Complete/Cancelled.
+    const live = new Map(), archived = new Map();
+    for (const r of jobRows) { const w = webOf(r[JOBS.order]), s = String(r[JOBS.status] || ""); if (!w || !s) continue;
+      const p = live.get(w); if (!p || /^(complete|cancelled)$/i.test(p)) live.set(w, s); }
+    for (const r of doneRows) { const w = webOf(r[DONE.order]); if (w && !archived.has(w)) archived.set(w, String(r[DONE.status] || "") || "Complete"); }
+    const ageDays = d => { const t = Date.parse(d); return isNaN(t) ? 0 : (Date.now() - t) / 86400000; };
 
     const orders = logRows.filter(r => emailInAccount(r[LOG.email], acct)).map(r => {
       const raw = String(r[LOG.order] || "");
-      const m = raw.match(/WEB-(?:\d{8}-)?\d{3,6}/);
+      const web = webOf(raw);
+      const date = String(r[LOG.logged] || "").slice(0, 10);
+      // live sheet → archive → Orders Log copy. An order that's in neither sheet and is over 60 days old
+      // has been archived past the 6-month sheet (or completed off-system) — call it Complete rather than
+      // telling the customer it was only just received.
+      let src = live.get(web) || archived.get(web) || String(r[LOG.status] || "");
+      if (!live.has(web) && !archived.has(web) && ageDays(date) > 60 && !/cancel/i.test(src)) src = "Complete";
       return {
         row: String(r._rowId),
-        orderNo: m ? m[0] : raw,
+        orderNo: web || raw,
         po: String(r[LOG.po] || ""),
-        date: String(r[LOG.logged] || "").slice(0, 10),
-        status: customerStatus(r[LOG.status]),
+        date,
+        status: customerStatus(src),
         pieces: +r[LOG.pieces] || 0,
         amount: +r[LOG.sales] || 0,
         quoteId: /^Q-[A-Za-z0-9]{4,12}$/.test(String(r[LOG.quoteId] || "")) ? String(r[LOG.quoteId]) : "",
         by: String(r[LOG.contact] || ""),
-        cancelled: /cancel/i.test(String(r[LOG.status] || "")),
+        cancelled: /cancel/i.test(src),
       };
     }).filter(o => /^WEB-/.test(o.orderNo)).sort((a, b) => (b.date || "").localeCompare(a.date || "") || b.orderNo.localeCompare(a.orderNo));
 
