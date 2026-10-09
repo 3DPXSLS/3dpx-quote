@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Your account — 3DPX Additive Manufacturing</title>
+<style>
+  :root{--navy:#1b2a4a;--orange:#f26a21;--ink:#1b2330;--muted:#5a6678;--line:#e2e8f2;--bg:#f4f6fa}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Arial,Helvetica,sans-serif;color:var(--ink);background:var(--bg)}
+  .wrap{max-width:1000px;margin:0 auto;padding:22px 18px 60px}
+  header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;border-bottom:3px solid var(--orange);padding-bottom:12px;margin-bottom:20px}
+  .brand{font-weight:800;letter-spacing:.5px;color:var(--navy);font-size:15px}
+  .brand small{display:block;font-weight:500;letter-spacing:0;color:var(--muted);font-size:12px;margin-top:2px}
+  h1{margin:0;font-size:24px;color:var(--navy)}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:22px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .card .k{font-size:12px;color:var(--muted)} .card .v{font-size:24px;font-weight:800;color:var(--navy);margin-top:3px}
+  h2{font-size:16px;color:var(--navy);margin:26px 0 10px;display:flex;justify-content:space-between;align-items:center}
+  .list{background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .row{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,.9fr) minmax(0,1fr) minmax(0,.9fr) minmax(0,1fr) 215px;gap:10px;align-items:center;padding:12px 14px;border-top:1px solid var(--line);font-size:14px}
+  .row:first-child{border-top:0}
+  .row.head{background:#f8fafd;font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:9px 14px}
+  .ord b{color:var(--navy)} .ord small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+  .pill{display:inline-block;font-size:12px;font-weight:700;padding:4px 9px;border-radius:999px;white-space:nowrap}
+  .s-Received{background:#eef1f6;color:#42506b} .s-In{background:#e6f0ff;color:#1e4fa8} .s-Ready{background:#fff4e0;color:#8a5a00}
+  .s-Complete{background:#e8f7ef;color:#1e7d52} .s-Waiting{background:#fdecec;color:#a32d2d} .s-Cancelled{background:#f1f1f1;color:#777}
+  .btns{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
+  .btn{border:1px solid #cbd5e6;background:#fff;color:var(--navy);border-radius:8px;padding:7px 12px;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap}
+  .btn:hover{border-color:var(--navy)}
+  .btn.primary{background:var(--orange);border-color:var(--orange);color:#fff}
+  .btn.primary:hover{background:#d95a14}
+  .detail{grid-column:1/-1;background:#fafbfd;border-top:1px dashed var(--line);margin:4px -14px -12px;padding:14px}
+  .parts{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:12px}
+  .part{background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px;font-size:12.5px}
+  .part img{width:100%;height:96px;object-fit:contain;background:#eef1f6;border-radius:6px;margin-bottom:6px}
+  .part .nm{font-weight:700;color:var(--navy);word-break:break-word} .part .fx{color:var(--muted);margin-top:2px}
+  .files{display:flex;flex-direction:column;gap:6px}
+  .file{display:flex;justify-content:space-between;align-items:center;gap:10px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px}
+  .file a{color:var(--navy);font-weight:700;text-decoration:none;word-break:break-all} .file a:hover{text-decoration:underline}
+  .file small{color:var(--muted);white-space:nowrap}
+  .sub{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:4px 0 8px}
+  .empty,.msg{padding:18px;color:var(--muted);font-size:14px;text-align:center}
+  .err{background:#fdecec;border:1px solid #f3c2c2;color:#a32d2d;border-radius:10px;padding:16px;font-size:14px}
+  footer{margin-top:30px;font-size:12.5px;color:var(--muted);text-align:center}
+  @media(max-width:720px){
+    .row{grid-template-columns:1fr 1fr;row-gap:6px}
+    .row.head{display:none}
+    .btns{grid-column:1/-1;justify-content:flex-start}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">3DPX ADDITIVE MANUFACTURING<small>Customer account</small></div>
+    <h1 id="co">Loading…</h1>
+  </header>
+  <div id="app"><div class="msg">Loading your orders…</div></div>
+  <footer>Questions? Email <a href="mailto:sales@3dpx.com">sales@3dpx.com</a> or call (312) 896-3399.<br>Keep this link private — anyone with it can see your company's orders.</footer>
+</div>
+<script>
+// Readable link: /account/<company>/<code>  →  token "<company>-<CODE>". (?a=<token> still works too.)
+const A=(function(){
+  const m=location.pathname.match(/^\/account\/([A-Za-z0-9\-]+)\/([A-Za-z0-9\-]+)\/?$/);
+  if(m) return m[1].toLowerCase()+"-"+m[2].toUpperCase();
+  return new URLSearchParams(location.search).get("a")||"";
+})();
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const money=n=>"$"+Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtDate=s=>{if(!s)return"—";const d=new Date(s+"T12:00:00");return isNaN(d)?s:d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});};
+const CLR={natural:"Natural",black:"Black",blue:"Blue",green:"Green",red:"Red",yellow:"Yellow"};
+function finish(p){const f=[];
+  if(p.dye&&p.color&&p.color!=="natural")f.push("Dyed "+(CLR[p.color]||p.color));
+  if(p.vs)f.push("Vapor smoothed"); if(p.tumble)f.push("Tumbled");
+  if(p.inserts&&+p.insertQty>0)f.push(+p.insertQty+" insert"+(+p.insertQty===1?"":"s"));
+  if(p.tapped&&+p.tapQty>0)f.push(+p.tapQty+" tapped hole"+(+p.tapQty===1?"":"s"));
+  if(p.inspect&&+p.inspQty>0)f.push("Formal inspection");
+  return f.join(" · ")||"Standard finish";}
+const pillClass=s=>"s-"+String(s).split(" ")[0];
+const reorderUrl=q=>"/?quote="+encodeURIComponent(q)+"&reorder=1&a="+encodeURIComponent(A);
+
+let DATA=null;
+async function load(){
+  const app=document.getElementById("app");
+  if(!A){app.innerHTML='<div class="err">This page needs your private account link. Please use the link 3DPX sent you.</div>';document.getElementById("co").textContent="";return;}
+  try{
+    const r=await fetch("/.netlify/functions/account-data?a="+encodeURIComponent(A));
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok||!d.ok){app.innerHTML='<div class="err">'+esc(d.error||"Couldn't load your account.")+'</div>';document.getElementById("co").textContent="";return;}
+    DATA=d; render();
+  }catch(e){app.innerHTML='<div class="err">Couldn\'t reach 3DPX right now. Please try again in a moment.</div>';}
+}
+function render(){
+  const d=DATA; document.getElementById("co").textContent=d.company; document.title=d.company+" — 3DPX account";
+  const yr=String(new Date().getFullYear());
+  const live=d.orders.filter(o=>!o.cancelled);
+  const open=live.filter(o=>o.status!=="Complete").length;
+  const pcsYr=live.filter(o=>(o.date||"").startsWith(yr)).reduce((s,o)=>s+o.pieces,0);
+  let h='<div class="cards">'
+    +'<div class="card"><div class="k">Open orders</div><div class="v">'+open+'</div></div>'
+    +'<div class="card"><div class="k">Orders on file</div><div class="v">'+live.length+'</div></div>'
+    +'<div class="card"><div class="k">Parts ordered in '+yr+'</div><div class="v">'+pcsYr.toLocaleString()+'</div></div>'
+    +'<div class="card"><div class="k">Saved quotes</div><div class="v">'+d.quotes.length+'</div></div></div>';
+  h+='<h2>Your orders <a class="btn" href="/">New quote</a></h2><div class="list">';
+  if(!d.orders.length) h+='<div class="empty">No orders yet.</div>';
+  else{
+    h+='<div class="row head"><span>Order</span><span>Placed</span><span>Parts</span><span>Total</span><span>Status</span><span></span></div>';
+    d.orders.forEach((o,i)=>{
+      h+='<div class="row" id="o'+i+'"><span class="ord"><b>'+esc(o.orderNo)+'</b><small>'+(o.po?("PO "+esc(o.po)):"")+(o.by?((o.po?" · ":"")+esc(o.by)):"")+'</small></span>'
+        +'<span>'+fmtDate(o.date)+'</span><span>'+(o.pieces?o.pieces.toLocaleString()+" pcs":"—")+'</span><span>'+(o.amount?money(o.amount):"—")+'</span>'
+        +'<span><span class="pill '+pillClass(o.status)+'">'+esc(o.status)+'</span></span>'
+        +'<span class="btns"><button class="btn" data-files="'+i+'">Parts &amp; files</button>'
+        +(o.quoteId&&!o.cancelled?'<a class="btn primary" href="'+reorderUrl(o.quoteId)+'">Reorder</a>':'')+'</span></div>';
+    });
+  }
+  h+='</div>';
+  h+='<h2>Saved quotes</h2><div class="list">';
+  if(!d.quotes.length) h+='<div class="empty">No open quotes.</div>';
+  else{
+    h+='<div class="row head"><span>Quote</span><span>Created</span><span>Parts</span><span>Estimate</span><span></span><span></span></div>';
+    d.quotes.forEach(q=>{
+      h+='<div class="row"><span class="ord"><b>'+esc(q.quoteId)+'</b><small>'+esc(q.by||"")+'</small></span><span>'+fmtDate(q.created)+'</span>'
+        +'<span>'+(q.items?q.items+" part"+(q.items===1?"":"s")+" · ":"")+(q.pieces?q.pieces.toLocaleString()+" pcs":"")+'</span>'
+        +'<span>'+(q.total?money(q.total):"—")+'</span><span></span>'
+        +'<span class="btns"><a class="btn primary" href="/?quote='+encodeURIComponent(q.quoteId)+'">Open quote</a></span></div>';
+    });
+  }
+  h+='</div>';
+  document.getElementById("app").innerHTML=h;
+  document.querySelectorAll("[data-files]").forEach(b=>b.onclick=()=>toggleFiles(+b.dataset.files,b));
+}
+async function toggleFiles(i,btn){
+  const o=DATA.orders[i], rowEl=document.getElementById("o"+i);
+  const ex=rowEl.querySelector(".detail"); if(ex){ex.remove();btn.textContent="Parts & files";return;}
+  btn.textContent="Hide";
+  const det=document.createElement("div"); det.className="detail"; det.innerHTML='<div class="msg">Loading…</div>'; rowEl.appendChild(det);
+  const [fr,qr]=await Promise.all([
+    fetch("/.netlify/functions/account-files?a="+encodeURIComponent(A)+"&row="+encodeURIComponent(o.row)).then(r=>r.json()).catch(()=>({})),
+    o.quoteId?fetch("/.netlify/functions/get-quote?id="+encodeURIComponent(o.quoteId)).then(r=>r.json()).catch(()=>({})):Promise.resolve({})
+  ]);
+  let h="";
+  const qp=(qr&&qr.ok&&qr.quote&&qr.quote.parts)||[];
+  if(qp.length){
+    h+='<div class="sub">Parts on this order</div><div class="parts">';
+    qp.forEach(p=>{h+='<div class="part">'+(p.thumb?'<img alt="" src="'+esc(p.thumb)+'">':'')
+      +'<div class="nm">'+esc(p.name)+'</div><div class="fx">Qty '+(+p.qty||1).toLocaleString()+' · '+esc(finish(p))+'</div></div>';});
+    h+='</div>';
+  }
+  const files=(fr&&fr.ok&&fr.files)||[];
+  h+='<div class="sub">Files</div>';
+  if(!files.length) h+='<div class="empty" style="padding:8px;text-align:left">No files on record for this order — email sales@3dpx.com if you need them.</div>';
+  else{
+    h+='<div class="files">';
+    files.forEach(f=>{h+='<div class="file"><a href="/.netlify/functions/account-files?a='+encodeURIComponent(A)+'&row='+encodeURIComponent(o.row)+'&att='+encodeURIComponent(f.id)+'">'+esc(f.name)+'</a><small>'
+      +(f.kind==="part"?"Part file":f.kind==="drawing"?"Drawing":"Document")+(f.kb?(" · "+(f.kb>=1024?(f.kb/1024).toFixed(1)+" MB":f.kb+" KB")):"")+'</small></div>';});
+    h+='</div>';
+  }
+  if(o.quoteId&&!o.cancelled) h+='<p style="font-size:12.5px;color:var(--muted);margin:12px 0 0">Need a change? <b>Reorder</b> lets you adjust quantities or replace any part file before you order.</p>';
+  else if(!o.quoteId) h+='<p style="font-size:12.5px;color:var(--muted);margin:12px 0 0">This order was placed before online reordering — email sales@3dpx.com to repeat it.</p>';
+  det.innerHTML=h;
+}
+load();
+</script>
+</body>
+</html>

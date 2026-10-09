@@ -1031,7 +1031,8 @@ function render(){
           ${(window.THREE&&p.geo&&viewers[p.id])?`<div class="viewwrap"><div class="viewslot" data-view="${p.id}" title="Drag to rotate"></div><div class="viewhint">↻ drag · <a href="#" data-expand="${p.id}" style="color:inherit;text-decoration:underline;cursor:pointer">⤢ enlarge</a></div></div>`:(p.thumb?`<div class="viewwrap"><img class="thumb" src="${p.thumb}" alt="3D preview of ${esc(p.name)}" data-expand="${p.id}" title="Click to enlarge" style="cursor:zoom-in"><div class="viewhint"><a href="#" data-expand="${p.id}" style="color:inherit;text-decoration:underline;cursor:pointer">⤢ enlarge</a></div></div>`:"")}
           <div style="min-width:0"><div class="nm">${esc(p.name)}</div>
           <div class="dims">${isMan?`STEP file · qty <b>${p.qty}</b> · <span class="save">manual quote</span>${(p.override>0)?` · <span class="save">custom $</span>`:""}`:`${p.x}×${p.y}×${p.z} mm · ${p.vol} cm³ · qty <b>${p.qty}</b>${c.fixed?` · <span class="save">custom $</span>`:`${c.qp>0?` · <span class="save">${c.qp}% qty</span>`:""}${_valPct>0?` · <span class="save">${_valPct}% order</span>`:""}${_addlPct>0?` · <span class="save">${_addlPct}% add&#39;l</span>`:""}${_t0.promoApplied?` · <span class="save">${_t0.promoPct}% promo</span>`:""}`}`}</div>
-          ${isMan?`<div class="dims" style="opacity:.7;margin-top:1px">Awaiting manual measurement — ${oversized(p)?"file too large to upload, please email it":"STEP attached for review"}</div>`:`<div class="dims" style="opacity:.7;margin-top:1px">${(p.x/25.4).toFixed(2)}×${(p.y/25.4).toFixed(2)}×${(p.z/25.4).toFixed(2)} in · ${(p.vol*0.0610237).toFixed(2)} in³</div>`}</div>
+          ${isMan?`<div class="dims" style="opacity:.7;margin-top:1px">Awaiting manual measurement — ${oversized(p)?"file too large to upload, please email it":"STEP attached for review"}</div>`:`<div class="dims" style="opacity:.7;margin-top:1px">${(p.x/25.4).toFixed(2)}×${(p.y/25.4).toFixed(2)}×${(p.z/25.4).toFixed(2)} in · ${(p.vol*0.0610237).toFixed(2)} in³</div>`}
+          ${REORDER?`<div style="margin-top:6px;font-size:12px;line-height:1.5">${p.replaced?`<span style="color:#1e7d52;font-weight:700">✓ New file</span> <span style="color:#5a6678">(replaces ${esc(p.replacedFrom||"previous file")})</span> · `:(p.fileName?`<span style="color:#5a6678">File: ${esc(p.fileName)}</span> · `:"")}<label style="display:inline;margin:0;text-transform:none;letter-spacing:0;font-size:12px;font-weight:700;color:#1b2a4a;cursor:pointer;text-decoration:underline">Replace file<input type="file" accept=".stl,.stp,.step" data-replace="${p.id}" style="display:none"></label></div>`:""}</div>
         </div>
         <div style="display:flex;align-items:center;gap:12px">
           <div class="pricebox" style="text-align:right">
@@ -1101,6 +1102,9 @@ function render(){
       if(k==="unit") applyUnit(p);
       render();});
   });
+  ul.querySelectorAll("[data-replace]").forEach(inp=>inp.addEventListener("change",()=>{
+    const f=inp.files&&inp.files[0]; if(f) replacePartFile(inp.dataset.replace,f); inp.value="";
+  }));
   ul.querySelectorAll("[data-draw]").forEach(inp=>{
     inp.addEventListener("change",()=>{
       const p=parts.find(x=>x.id==inp.dataset.draw); if(!p)return;
@@ -1677,6 +1681,66 @@ async function uploadAccounting(orderNo,opts){
   }catch(e){}
 }
 let LOADED_QUOTE_ID=null;
+/* ---- Customer-portal reorder ----
+   Reached from account.html as /?quote=<id>&reorder=1&a=<account token>. The quote loads as usual; each
+   line can have its file swapped ("Replace file"). At order time prepareReorder() asks account-reorder to
+   clone the quote — keeping the rep's pricing for unchanged lines — and the order is then placed against
+   that clone, so the record (and the next reorder) shows exactly what was ordered this time. */
+const REORDER=(function(){try{const u=new URLSearchParams(location.search);return u.get("reorder")==="1"&&!!u.get("a");}catch(e){return false;}})();
+const ACCOUNT_A=(function(){try{return new URLSearchParams(location.search).get("a")||"";}catch(e){return "";}})();
+let REORDER_FROM=null;
+async function replacePartFile(pidv,file){
+  const idx=parts.findIndex(x=>String(x.id)===String(pidv)); if(idx<0) return;
+  const old=parts[idx];
+  dpxProgress("Measuring "+file.name+" ("+(file.size/1048576).toFixed(1)+" MB)…"); await _paint();
+  let np=null;
+  try{
+    const buf=await file.arrayBuffer();
+    if(/\.(stp|step)$/i.test(file.name)){
+      if(!_occtPromise){ dpxProgress("Loading the STEP reader (one-time, takes a few seconds)…"); await _paint(); }
+      const r=await stepToGeom(buf); if(!r||!r.count) throw 0;
+      np=partFromGeom(file,buf,r);
+      if(r.bodies>1&&r.overlap){ np.vol=0; np.manual=true; np.assembly=r.bodies; }
+    } else {
+      const r=parseSTL(buf); if(!r||!r.count) throw 0;
+      np=partFromGeom(file,buf,r);
+    }
+  }catch(e){ dpxProgressDone(); alert("Couldn't read "+file.name+". Please check it's a valid STL or STEP file."); return; }
+  // Keep everything the customer chose for this line — only the geometry and file change.
+  ["qty","color","dye","vs","tumble","inserts","insertQty","tapped","tapQty","inspect","inspQty","notes","drawingName","drawingBuf"].forEach(k=>{ if(old[k]!==undefined) np[k]=old[k]; });
+  np.src=old.src; np.replaced=true; np.replacedFrom=old.replaced?old.replacedFrom:old.fileName;
+  disposeViewer(old.id); parts[idx]=np; createViewer(np);
+  render(); dpxProgressDone();
+}
+/* Clone the original quote for this reorder and point the order at the clone. Runs on every order
+   attempt (cheap), so changes made after a failed attempt are never lost. Returns false to stop. */
+async function prepareReorder(){
+  if(!REORDER||!REORDER_FROM) return true;
+  dpxProgress("Preparing your reorder…"); await _paint();
+  parts.forEach(p=>{ delete p._inQuote; });
+  let d={};
+  try{
+    const r=await fetch("/.netlify/functions/account-reorder",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({a:ACCOUNT_A, from:REORDER_FROM, total:orderTotals().total,
+        parts:parts.map(p=>({src:Number.isInteger(p.src)?p.src:null, replaced:!!p.replaced, name:p.name, file:p.fileName||"",
+          x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,tumble:!!p.tumble,
+          inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,inspect:!!p.inspect,inspQty:+p.inspQty||1,
+          notes:String(p.notes||"").slice(0,600),manual:!!p.manual,
+          thumb:(p.replaced||!Number.isInteger(p.src))?(p.thumb||""):""}))})});
+    d=await r.json().catch(()=>({}));
+    if(!r.ok||!d.ok||!d.id) throw new Error(d.error||"reorder failed");
+  }catch(e){ dpxProgressDone(); alert((d&&d.error)||"We couldn't set up your reorder. Please try again, or email sales@3dpx.com."); return false; }
+  // Upload new / replaced part files into the clone. The order then picks them up via promote-quote,
+  // so they're skipped by uploadOrderFiles (no double upload of big files).
+  const toSend=parts.map((p,i)=>({p,i})).filter(x=>x.p.fileBuf&&(x.p.replaced||!Number.isInteger(x.p.src)));
+  for(let n=0;n<toSend.length;n++){ const {p,i}=toSend[n];
+    if(p.fileBuf.byteLength>MAX_UPLOAD) continue;   // reported by the normal oversize path
+    dpxProgress("Uploading new file "+(n+1)+" of "+toSend.length+" — "+(p.fileName||p.name)+"…"); await _paint();
+    if(await putFile(d.id,i,p.fileName||(p.name+".stl"),p.fileBuf)) p._inQuote=true;
+  }
+  LOADED_QUOTE_ID=d.id;
+  return true;
+}
 /* Retrying file upload (fixes occasional dropped STL). Returns true on success.
    Files over one chunk are split into <3.5MB pieces (each under Netlify's function-body cap),
    uploaded sequentially, then reassembled server-side via a finalize call. */
@@ -1705,7 +1769,7 @@ async function putFile(orderNo,i,name,buf){
 async function uploadOrderFiles(orderNo){
   const missed=[];
   for(let i=0;i<parts.length;i++){const p=parts[i];
-    if(p.fileBuf){ if(p.fileBuf.byteLength>MAX_UPLOAD){missed.push((p.fileName||p.name)+" — file over "+MAX_UPLOAD_MB+" MB");}
+    if(p.fileBuf&&!p._inQuote){ if(p.fileBuf.byteLength>MAX_UPLOAD){missed.push((p.fileName||p.name)+" — file over "+MAX_UPLOAD_MB+" MB");}
       else if(!await putFile(orderNo,i,p.fileName||(p.name+".stl"),p.fileBuf)) missed.push(p.fileName||(p.name+".stl")); }
     if(p.drawingBuf){ if(p.drawingBuf.byteLength>MAX_UPLOAD){missed.push((p.drawingName||p.name)+" — drawing over "+MAX_UPLOAD_MB+" MB");}
       else if(!await putFile(orderNo,"draw"+i,"drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf")),p.drawingBuf)) missed.push("drawing "+(i+1)); }
@@ -1838,6 +1902,7 @@ async function startPayment(){
   ORDER_IN_FLIGHT=true; _setOrderBtns(true);  // lock every order control until this attempt finishes
   const btn=document.getElementById("payBtn"), orig=btn.textContent;
   btn.disabled=true;
+  if(!await prepareReorder()){ ORDER_IN_FLIGHT=false; _setOrderBtns(false); btn.textContent=orig; btn.disabled=false; return; }
   dpxProgress("Saving your quote…");
   await ensureQuoteSaved();
   dpxProgress("Reserving your order number…");
@@ -1910,6 +1975,7 @@ async function submitPO(approved){
   if(blockForUnpriced()) return;               // PO/approved orders were the leak: unpriced items billed at $0
   ORDER_IN_FLIGHT=true; _setOrderBtns(true);  // lock every order control until this attempt finishes
   const btn=document.getElementById(approved?"approvedBtn":"poBtn"), orig=btn.textContent; btn.disabled=true;
+  if(!await prepareReorder()){ ORDER_IN_FLIGHT=false; _setOrderBtns(false); btn.textContent=orig; btn.disabled=false; return; }
   dpxProgress("Saving your quote…");
   await ensureQuoteSaved();
   dpxProgress("Reserving your order number…");
@@ -2127,11 +2193,14 @@ async function loadQuote(id){
     if(document.getElementById("matCert"))document.getElementById("matCert").checked=!!q.matCert;
     {const eh=document.getElementById("engHours");if(eh)eh.value=ENG_HOURS>0?ENG_HOURS:"";}
     parts.length=0;
-    (q.parts||[]).forEach(p=>{parts.push({id:++pid,name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color||"natural",dye:!!p.dye,vs:!!p.vs,vsPrice:(+p.vsPrice>0)?+p.vsPrice:null,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:Math.max(1,+p.insertQty||1),tapped:!!p.tapped,tapQty:Math.max(1,+p.tapQty||1),inspect:!!p.inspect,inspQty:Math.max(1,+p.inspQty||1),notes:p.notes||"",drawingName:p.drawingName||"",fileName:p.file||"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual,geo:null,area:0,thumb:p.thumb||null,fileBuf:null});});
+    if(REORDER) REORDER_FROM=q.id;
+    (q.parts||[]).forEach((p,qi)=>{parts.push({id:++pid,src:qi,name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color||"natural",dye:!!p.dye,vs:!!p.vs,vsPrice:(+p.vsPrice>0)?+p.vsPrice:null,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:Math.max(1,+p.insertQty||1),tapped:!!p.tapped,tapQty:Math.max(1,+p.tapQty||1),inspect:!!p.inspect,inspQty:Math.max(1,+p.inspQty||1),notes:p.notes||"",drawingName:p.drawingName||"",fileName:p.file||"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual,geo:null,area:0,thumb:p.thumb||null,fileBuf:null});});
     toggleShip();render();
     const b=document.getElementById("payBanner");
     if(b){b.style.display="block";b.style.background="#eef4ff";b.style.border="1px solid #b9cdf0";b.style.color="#1b2a4a";
-      b.innerHTML="📋 <b>Your 3DPX quote is ready.</b> Review the parts below, then choose how to order — pay securely by card or submit a PO. Pricing as quoted; we confirm on final review.";}
+      b.innerHTML=REORDER
+        ? "🔁 <b>Reordering "+esc(q.id)+".</b> Your parts, finishes and pricing are loaded from last time. Change any quantity, use <b>Replace file</b> to swap in a new revision, or add parts — then submit your PO or pay by card. <a href=\""+(function(){const m=String(ACCOUNT_A).match(/^([a-z0-9]+)-(.+)$/);return m?("/account/"+m[1]+"/"+encodeURIComponent(m[2])):("/account.html?a="+encodeURIComponent(ACCOUNT_A));})()+"\" style=\"color:inherit\">Back to your account</a>"
+        : "📋 <b>Your 3DPX quote is ready.</b> Review the parts below, then choose how to order — pay securely by card or submit a PO. Pricing as quoted; we confirm on final review.";}
     if(window.THREE){ for(let i=0;i<parts.length;i++){const p=parts[i];
       try{ const rr=await fetch("/.netlify/functions/get-quote-file?id="+encodeURIComponent(q.id)+"&i="+i);
         if(!rr.ok) continue; const buf=await rr.arrayBuffer();
