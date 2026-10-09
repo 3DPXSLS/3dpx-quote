@@ -70,6 +70,8 @@ export default async (req) => {
     certWaive: authed ? !!body.certWaive : false,                   // rep-only; waives the $100 material-cert fee
     promo: String(body.promo || "").trim().toUpperCase().slice(0,24),
     dueDate: /^\d{4}-\d{2}-\d{2}$/.test(String(body.dueDate || "")) ? body.dueDate : "",
+    // rep-only custom lead time in business days (1–120); counted from the day the order is placed
+    leadDays: (authed && +body.leadDays >= 1 && +body.leadDays <= 120) ? Math.floor(+body.leadDays) : 0,
     note: String(body.note || "").slice(0, 600),
     cust: {
       name: String(body.name || "").slice(0,200),

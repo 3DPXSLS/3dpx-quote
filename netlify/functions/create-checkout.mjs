@@ -239,7 +239,10 @@ export default async (req) => {
   f.append("metadata[est_ship]", String(shipEstimate(parts, body.region, speed, body.zip)));  // logged to Est. Shipping by the webhook
   f.append("metadata[total_parts]", String(totalParts));
   f.append("metadata[total_vol]", String(totalVol));
-  f.append("metadata[lead_days]", String(leadDaysCalc(parts)));
+  // A rep-set lead time (business days, counted from today = order day) beats the auto estimate.
+  // The webhook turns lead_days into the SLS Jobs due date whenever no explicit due_date is set.
+  const customLead = (+body.leadDays >= 1 && +body.leadDays <= 120) ? Math.floor(+body.leadDays) : 0;
+  f.append("metadata[lead_days]", String(customLead || leadDaysCalc(parts)));
   f.append("metadata[dye_any]", dyeAny ? "yes" : "no");
   f.append("metadata[vapor_any]", vaporAny ? "yes" : "no");
   f.append("metadata[color]", colorList || "White");

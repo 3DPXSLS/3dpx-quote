@@ -202,6 +202,8 @@
       <div><label>Engineering services (hours @ $125/hr)</label><input id="engHours" type="number" min="0" step="0.25" placeholder="0"></div>
       <div><label>Additional discount (% off order)</label><input id="addlDisc" type="number" min="0" max="100" step="0.5" placeholder="0"></div>
       <div><label>Custom due date (optional)</label><input id="repDue" type="date"></div>
+      <div><label>Custom lead time (business days, optional)</label><input id="repLead" type="number" min="1" max="120" step="1" placeholder="Auto">
+        <div id="repLeadHint" style="font-size:11.5px;color:#5a6678;margin-top:4px;min-height:14px"></div></div>
       <div><label>Tax status</label><label class="repCheck"><input type="checkbox" id="taxExempt"> Tax exempt — no sales tax</label></div>
       <div><label>Material cert fee</label><label class="repCheck"><input type="checkbox" id="certWaive"> Waive $100 fee — cert still provided</label></div>
       <div><label>Missing files</label><label class="repCheck"><input type="checkbox" id="fileOverride"> Order without files — files coming separately</label></div>
@@ -486,7 +488,9 @@ function orderBaseDays(){let tv=0;parts.forEach(p=>tv+=(p.vol||0)*(p.qty||0));
 function partFinishDays(p){return (p.dye?FINISH.dyeDays:0)+(p.vs?FINISH.vsDays:0)+(p.tumble?FINISH.tumbDays:0)+(insertCount(p)?FINISH.insertDays:0)+(tapCount(p)?FINISH.tapDays:0)+(inspCount(p)?FINISH.inspDays:0);}
 function leadDays(p){return orderBaseDays()+partFinishDays(p);}
 function leadLabel(p){const d=leadDays(p);return d+(d===1?" day":" days");}
-function orderLeadDays(){let m=0;parts.forEach(p=>{const f=partFinishDays(p);if(f>m)m=f;});return orderBaseDays()+m;}
+function orderLeadDays(){
+  if(REP_LEAD>0) return REP_LEAD;   // rep-set lead time wins over the auto estimate (counted from the day of ORDER, not the quote)
+  let m=0;parts.forEach(p=>{const f=partFinishDays(p);if(f>m)m=f;});return orderBaseDays()+m;}
 const BED = {x:700,y:380,z:580}; // EOS P 770 build volume (mm)
 
 function baseUnit(p){                              // pre-finish unit price (rates × geometry × marketAdj)
@@ -517,6 +521,16 @@ let ENG_HOURS=0;  // rep-set engineering-services hours @ $125/hr, internal only
 // A quote is valid with parts OR with engineering-services hours alone (rep can bill engineering with no print).
 function quotable(){ return parts.length>0 || (ENG_HOURS>0); }
 let REP_DUE="";   // rep-set custom due date (YYYY-MM-DD), internal only; blank = auto from lead time
+/* Rep-set custom lead time in business days (0 = auto). Unlike REP_DUE, which is a fixed calendar
+   date, this counts from the day the order is PLACED — so "10 days" on a quote accepted next week
+   still gives 10 days. If both are set, the explicit due date wins. */
+let REP_LEAD=0;
+function repLeadHint(){
+  const h=document.getElementById("repLeadHint"); if(!h) return;
+  if(!(REP_LEAD>0)){ h.textContent=""; return; }
+  h.textContent = REP_DUE ? "Custom due date is set — it takes priority over this."
+                          : "≈ due "+estDueDate(REP_LEAD)+" if ordered today";
+}
 let TAX_EXEMPT=false; // rep-set: customer is tax exempt → no sales tax (internal only)
 let CERT_WAIVED=false; // rep-set: waive the material-certification fee (cert still provided, $0)
 let FILES_OVERRIDE=false; // rep-set: allow an order through with missing part files (they arrive by email/Dropbox)
@@ -1778,7 +1792,7 @@ async function ensureQuoteSaved(){
       body:JSON.stringify({token:INTERNAL_TOKEN,id:LOADED_QUOTE_ID||undefined,
         parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,vsPrice:(+p.vsPrice>0)?+p.vsPrice:null,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,inspect:!!p.inspect,inspQty:+p.inspQty||1,notes:String(p.notes||"").slice(0,600),drawingName:p.drawingName||"",file:p.fileName||"",thumb:"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
-        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,certWaive:CERT_WAIVED,note:orderNotesText(),dueDate:REP_DUE||"",total:orderTotals().total,origin:location.origin,source:INTERNAL?"internal":"web",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
+        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,certWaive:CERT_WAIVED,note:orderNotesText(),dueDate:REP_DUE||"",leadDays:REP_LEAD||0,total:orderTotals().total,origin:location.origin,source:INTERNAL?"internal":"web",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
     const d=await r.json().catch(()=>({}));
     if(d.ok){LOADED_QUOTE_ID=d.id;return d.id;}
   }catch(e){}
@@ -1852,7 +1866,7 @@ async function startPayment(){
         shipAccount:(shipSpeed()==="account")?v("sAcct"):"",
         shipAddress:(shipSpeed()==="pickup")?"Pickup at 3DPX (Chicago, IL)":[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "),
         matCert:document.getElementById("matCert").checked,
-        quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,certWaive:CERT_WAIVED,note:orderNotesText(),source:INTERNAL?"internal":"web",dueDate:REP_DUE||"",filesOverride:FILES_OVERRIDE,
+        quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,certWaive:CERT_WAIVED,note:orderNotesText(),source:INTERNAL?"internal":"web",dueDate:REP_DUE||"",leadDays:REP_LEAD||0,filesOverride:FILES_OVERRIDE,
         oversizeFiles:parts.filter(oversized).map(p=>p.fileName||p.name),   // too big to upload; coming by email — tells the server not to refuse the order
         returnUrl:document.referrer||location.href})});
     const data=await r.json().catch(()=>({}));
@@ -1927,7 +1941,7 @@ async function submitPO(approved){
         zip:v("sZip"), shipSpeed:shipSpeed(),
         carrier:(shipSpeed()==="account")?v("sCarrier"):"", shipAccount:(shipSpeed()==="account")?v("sAcct"):"",
         shipAddress:(shipSpeed()==="pickup")?"Pickup at 3DPX (Chicago, IL)":[v("sAddr"),v("sCity"),v("sState"),v("sZip"),regionLabel()].filter(Boolean).join(", "),
-        matCert:document.getElementById("matCert").checked,quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,certWaive:CERT_WAIVED,note:orderNotesText(),source:INTERNAL?"internal":"web",dueDate:REP_DUE||"",filesOverride:FILES_OVERRIDE,
+        matCert:document.getElementById("matCert").checked,quoteId:LOADED_QUOTE_ID||"",addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,certWaive:CERT_WAIVED,note:orderNotesText(),source:INTERNAL?"internal":"web",dueDate:REP_DUE||"",leadDays:REP_LEAD||0,filesOverride:FILES_OVERRIDE,
         oversizeFiles:parts.filter(oversized).map(p=>p.fileName||p.name)})});   // too big to upload; coming by email — tells the server not to refuse the order
     const data=await r.json().catch(()=>({}));
     dpxProgressDone();                           // done either way — the result is shown inline below
@@ -2034,7 +2048,7 @@ async function saveQuote(){
       body:JSON.stringify({token:INTERNAL_TOKEN,id,
         parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,vsPrice:(+p.vsPrice>0)?+p.vsPrice:null,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,inspect:!!p.inspect,inspQty:+p.inspQty||1,notes:String(p.notes||"").slice(0,600),drawingName:p.drawingName||"",file:p.fileName||"",thumb:p.thumb||"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
-        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,certWaive:CERT_WAIVED,note:orderNotesText(),dueDate:REP_DUE||"",total:orderTotals().total,origin:location.origin,source:INTERNAL?"internal":"web",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
+        matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,certWaive:CERT_WAIVED,note:orderNotesText(),dueDate:REP_DUE||"",leadDays:REP_LEAD||0,total:orderTotals().total,origin:location.origin,source:INTERNAL?"internal":"web",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
     const data=await r.json().catch(()=>({}));
     if(data.ok){
       LOADED_QUOTE_ID=data.id;
@@ -2099,7 +2113,7 @@ async function loadQuote(id){
     const r=await fetch("/.netlify/functions/get-quote?id="+encodeURIComponent(id));
     const data=await r.json().catch(()=>({}));
     if(!data.ok||!data.quote)return;
-    const q=data.quote;LOADED_QUOTE_ID=q.id;ADDL_DISC=Math.max(0,+q.addlDisc||0);ENG_HOURS=Math.max(0,+q.engHours||0);REP_DUE=q.dueDate||"";TAX_EXEMPT=!!q.taxExempt;{const te=document.getElementById("taxExempt");if(te)te.checked=TAX_EXEMPT;}CERT_WAIVED=!!q.certWaive;{const cw=document.getElementById("certWaive");if(cw)cw.checked=CERT_WAIVED;}
+    const q=data.quote;LOADED_QUOTE_ID=q.id;ADDL_DISC=Math.max(0,+q.addlDisc||0);ENG_HOURS=Math.max(0,+q.engHours||0);REP_DUE=q.dueDate||"";{const rd=document.getElementById("repDue");if(rd)rd.value=REP_DUE;}REP_LEAD=Math.max(0,Math.min(120,parseInt(q.leadDays)||0));{const rl=document.getElementById("repLead");if(rl)rl.value=REP_LEAD||"";}repLeadHint();TAX_EXEMPT=!!q.taxExempt;{const te=document.getElementById("taxExempt");if(te)te.checked=TAX_EXEMPT;}CERT_WAIVED=!!q.certWaive;{const cw=document.getElementById("certWaive");if(cw)cw.checked=CERT_WAIVED;}
     {const pr=resolvePromo(q.promo||"");PROMO_CODE=pr.pct>0?pr.code:"";PROMO_PCT=pr.pct;const pel=document.getElementById("promoCode");if(pel){pel.value=PROMO_CODE;}}
     const set=(k,val)=>{const el=document.getElementById(k);if(el&&val!=null&&val!=="")el.value=val;};
     if(q.cust){set("cName",q.cust.name);set("cCo",q.cust.company);set("cEmail",q.cust.email);set("cPhone",q.cust.phone);}
@@ -2132,7 +2146,8 @@ if(INTERNAL){
   const rt=document.getElementById("repTools");if(rt)rt.style.display="";
   const ad=document.getElementById("addlDisc");if(ad)ad.addEventListener("input",()=>{ADDL_DISC=Math.max(0,Math.min(100,parseFloat(ad.value)||0));render();});
   const eh=document.getElementById("engHours");if(eh)eh.addEventListener("input",()=>{ENG_HOURS=Math.max(0,parseFloat(eh.value)||0);render();});
-  const rdue=document.getElementById("repDue");if(rdue)rdue.addEventListener("change",()=>{REP_DUE=rdue.value||"";render();});
+  const rdue=document.getElementById("repDue");if(rdue)rdue.addEventListener("change",()=>{REP_DUE=rdue.value||"";repLeadHint();render();});
+  const rlead=document.getElementById("repLead");if(rlead)rlead.addEventListener("input",()=>{REP_LEAD=Math.max(0,Math.min(120,parseInt(rlead.value)||0));repLeadHint();render();});
   const tex=document.getElementById("taxExempt");if(tex)tex.addEventListener("change",()=>{TAX_EXEMPT=tex.checked;render();});
   const cwv=document.getElementById("certWaive");if(cwv)cwv.addEventListener("change",()=>{CERT_WAIVED=cwv.checked;render();});
   const fov=document.getElementById("fileOverride");if(fov)fov.addEventListener("change",()=>{FILES_OVERRIDE=fov.checked;});

@@ -215,7 +215,9 @@ export default async (req) => {
   }
 
   const contactVal = (body.name || "") + (body.email ? " <" + body.email + ">" : "");
-  const due = /^\d{4}-\d{2}-\d{2}$/.test(String(body.dueDate||"")) ? body.dueDate : addBusinessDays(new Date(), leadDaysCalc(parts)).toISOString().slice(0,10);
+  // Explicit due date wins; otherwise a rep-set lead time (business days from today = order day); otherwise auto.
+  const customLead = (+body.leadDays >= 1 && +body.leadDays <= 120) ? Math.floor(+body.leadDays) : 0;
+  const due = /^\d{4}-\d{2}-\d{2}$/.test(String(body.dueDate||"")) ? body.dueDate : addBusinessDays(new Date(), customLead || leadDaysCalc(parts)).toISOString().slice(0,10);
 
   const cells = [
     { columnId: COL.orderStatus, value: "Pre Sale", strict: false },
