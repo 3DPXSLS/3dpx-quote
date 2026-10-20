@@ -10,6 +10,7 @@
 import { getStore } from "@netlify/blobs";
 import { logQuote } from "./_quotelog.mjs";
 import { sendQuoteEmail } from "./_notify.mjs";
+import { isStaff } from "./_staff.mjs";
 
 export default async (req) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
@@ -17,7 +18,9 @@ export default async (req) => {
   try { body = await req.json(); } catch { return json({ error: "Bad request" }, 400); }
 
   const need = process.env.INTERNAL_CODE;
-  const authed = !need || String(body.token || "") === String(need);
+  // The staff link (?internal=<staff code>, see _staff.mjs) counts as a rep too, so switching a rep to it
+  // can never silently strip their price overrides / discounts.
+  const authed = !need || String(body.token || "") === String(need) || isStaff(body.token);
 
   const parts = Array.isArray(body.parts) ? body.parts : [];
   // Allow a parts-less quote only for a rep billing engineering services alone (never for public saves).
@@ -110,8 +113,10 @@ export default async (req) => {
       try { await store.setJSON("Q-QUOTES/" + id + ".json", record); } catch (e) {}
     }
     // Attach this quote's uploaded files + quote PDF to its SLS Quotes row (best-effort; never deletes blobs).
+    // Skipped for the automatic save made at order time (body.auto): its files go onto the ORDER rows,
+    // and attaching dozens of big part files here too would slow every order down.
     const sm = process.env.SMARTSHEET_TOKEN;
-    if (sm && record.quoteRowId) {
+    if (sm && record.quoteRowId && !body.auto) {
       try {
         const { attachQuoteFiles } = await import("./_attach.mjs");
         await attachQuoteFiles(sm, id, process.env.QUOTES_SHEET_ID || "8909229715836804", record.quoteRowId);
@@ -119,8 +124,9 @@ export default async (req) => {
     }
   } catch (e) { console.log("save-quote log error:", e.message); }
 
-  // Email the customer their quote (best-effort; only on public/customer saves with an email).
-  if (body.source !== "internal" && record.cust.email) {
+  // Email the customer their quote (best-effort; only on public/customer saves with an email). Not for the
+  // automatic save made when an order is placed — they get the order confirmation instead.
+  if (body.source !== "internal" && record.cust.email && !body.auto) {
     try { await sendQuoteEmail({ to: record.cust.email, quoteId: id, link, total: body.total, }); } catch (e) {}
   }
 

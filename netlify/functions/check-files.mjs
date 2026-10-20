@@ -13,15 +13,29 @@ export default async (req) => {
   try {
     const store = getStore("orders");
     const listing = await store.list({ prefix: order + "/" });
-    const files = [];
+    const files = [], entries = [];
     for (const b of (listing.blobs || [])) {
       const rest = b.key.slice((order + "/").length);
       if (!rest) continue;
       if (rest.startsWith(".part-")) continue;          // in-flight chunk temp files aren't real uploads
       const k = rest.indexOf("__");                     // stored as "<idx>__<filename>"
-      files.push(k >= 0 ? rest.slice(k + 2) : rest);
+      const name = k >= 0 ? rest.slice(k + 2) : rest;
+      files.push(name);
+      if (k > 0 && /^\d+$/.test(rest.slice(0, k))) entries.push({ i: +rest.slice(0, k), name });
     }
-    return json({ ok: true, files });
+    // ?idx=1 also returns which line each file belongs to. For a customer-portal reorder quote that
+    // points at files elsewhere (fileMap), those count too — they're what the order will receive.
+    if (url.searchParams.get("idx") === "1" && /^Q-[A-Za-z0-9]{4,12}$/.test(order)) {
+      try {
+        const rec = await store.get("Q-QUOTES/" + order + ".json", { type: "json" });
+        const have = new Set(entries.map(e => e.i + "__" + e.name));
+        for (const e of (rec && Array.isArray(rec.fileMap)) ? rec.fileMap : []) {
+          const m = String(e.to || "").match(/^(\d+)__(.+)$/);
+          if (m && !have.has(m[0])) { entries.push({ i: +m[1], name: m[2] }); files.push(m[2]); }
+        }
+      } catch (e) { /* folder contents only */ }
+    }
+    return json({ ok: true, files, entries });
   } catch (e) {
     console.log("check-files failed:", e.message);
     return json({ error: "list failed" }, 500);

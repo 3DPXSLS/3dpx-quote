@@ -107,6 +107,20 @@ export default async (req) => {
   });
   record.fileMap = fileMap;
 
+  // Each unchanged line must point at a part file that really exists. Older quotes sometimes recorded a
+  // file that was never stored (e.g. a merged STL used only for measuring, skipped by the old 30 MB
+  // limit) while the file that WAS stored and printed sits on the same line — use that one. A line with
+  // no stored part file at all can't be reordered as-is: the customer has to upload it (Replace file).
+  const isPart = n => /\.(stl|stp|step)$/i.test(n);
+  const noFile = [];
+  cur.forEach((c, j) => {
+    if (!Number.isInteger(c.src) || !prevParts[c.src] || c.replaced) return;
+    const names = fileMap.filter(e => e.to.startsWith(j + "__")).map(e => e.to.slice(String(j).length + 2)).filter(isPart);
+    if (!names.length) { noFile.push(parts[j].name); return; }
+    if (!names.some(n => n.toLowerCase() === String(parts[j].file || "").toLowerCase())) parts[j].file = names[0];
+  });
+  if (noFile.length) return json({ error: "We don't have a file on record for: " + noFile.join(", ") + ". Use Replace file to upload it, then order again.", noFile }, 409);
+
   await store.setJSON("Q-QUOTES/" + id + ".json", record);
 
   // Track it in SLS Quotes like any other quote (best-effort), then remember the row for "Ordered".

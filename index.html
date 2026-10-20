@@ -198,6 +198,12 @@
 
   <div id="repTools" style="display:none;margin:6px 0 4px;border:1px dashed #b9cdf0;border-radius:10px;padding:14px 16px;background:#f4f8ff">
     <div style="font-weight:700;color:#1b2a4a;margin-bottom:8px">Rep tools <span style="font-weight:500;color:#8a95a8;font-size:12px">· internal only</span></div>
+    <div style="margin:0 0 14px;position:relative">
+      <label style="color:#1b2a4a;font-weight:800">Find customer</label>
+      <input id="custFind" placeholder="Type a name, company or email to fill in their details…" autocomplete="off">
+      <div id="custResults" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:20;margin-top:4px;background:#fff;border:1px solid #cbd5e6;border-radius:8px;box-shadow:0 8px 24px rgba(15,22,38,.12);max-height:340px;overflow:auto"></div>
+      <div id="custFilled" style="display:none;font-size:12px;margin-top:6px;color:#1e7d52"></div>
+    </div>
     <div class="contact" style="margin:0">
       <div><label>Engineering services (hours @ $125/hr)</label><input id="engHours" type="number" min="0" step="0.25" placeholder="0"></div>
       <div><label style="color:#c62828;font-weight:800">Additional discount (% off order)</label><input id="addlDisc" type="number" min="0" max="100" step="0.5" placeholder="0" style="color:#c62828;font-weight:700"></div>
@@ -1032,7 +1038,7 @@ function render(){
           <div style="min-width:0"><div class="nm">${esc(p.name)}</div>
           <div class="dims">${isMan?`STEP file · qty <b>${p.qty}</b> · <span class="save">manual quote</span>${(p.override>0)?` · <span class="save">custom $</span>`:""}`:`${p.x}×${p.y}×${p.z} mm · ${p.vol} cm³ · qty <b>${p.qty}</b>${c.fixed?` · <span class="save">custom $</span>`:`${c.qp>0?` · <span class="save">${c.qp}% qty</span>`:""}${_valPct>0?` · <span class="save">${_valPct}% order</span>`:""}${_addlPct>0?` · <span class="save">${_addlPct}% add&#39;l</span>`:""}${_t0.promoApplied?` · <span class="save">${_t0.promoPct}% promo</span>`:""}`}`}</div>
           ${isMan?`<div class="dims" style="opacity:.7;margin-top:1px">Awaiting manual measurement — ${oversized(p)?"file too large to upload, please email it":"STEP attached for review"}</div>`:`<div class="dims" style="opacity:.7;margin-top:1px">${(p.x/25.4).toFixed(2)}×${(p.y/25.4).toFixed(2)}×${(p.z/25.4).toFixed(2)} in · ${(p.vol*0.0610237).toFixed(2)} in³</div>`}
-          ${REORDER?`<div style="margin-top:6px;font-size:12px;line-height:1.5">${p.replaced?`<span style="color:#1e7d52;font-weight:700">✓ New file</span> <span style="color:#5a6678">(replaces ${esc(p.replacedFrom||"previous file")})</span> · `:(p.fileName?`<span style="color:#5a6678">File: ${esc(p.fileName)}</span> · `:"")}<label style="display:inline;margin:0;text-transform:none;letter-spacing:0;font-size:12px;font-weight:700;color:#1b2a4a;cursor:pointer;text-decoration:underline">Replace file<input type="file" accept=".stl,.stp,.step" data-replace="${p.id}" style="display:none"></label></div>`:""}</div>
+          ${REORDER?`<div style="margin-top:6px;font-size:12px;line-height:1.5">${(p.needsFile&&!p.replaced)?`<span style="color:#c62828;font-weight:700">⚠ No file on record for this part — upload it with Replace file</span> · `:""}${p.replaced?`<span style="color:#1e7d52;font-weight:700">✓ New file</span> <span style="color:#5a6678">(replaces ${esc(p.replacedFrom||"previous file")})</span> · `:(p.fileName?`<span style="color:#5a6678">File: ${esc(p.fileName)}</span> · `:"")}<label style="display:inline;margin:0;text-transform:none;letter-spacing:0;font-size:12px;font-weight:700;color:#1b2a4a;cursor:pointer;text-decoration:underline">Replace file<input type="file" accept=".stl,.stp,.step" data-replace="${p.id}" style="display:none"></label></div>`:""}</div>
         </div>
         <div style="display:flex;align-items:center;gap:12px">
           <div class="pricebox" style="text-align:right">
@@ -1712,10 +1718,35 @@ async function replacePartFile(pidv,file){
   disposeViewer(old.id); parts[idx]=np; createViewer(np);
   render(); dpxProgressDone();
 }
+/* Match each reorder line to the part file actually stored for it. Older quotes sometimes recorded a
+   file that was never stored (a merged STL used only to measure/price, skipped by the old 30 MB limit)
+   while the file that WAS stored and printed sits on the same line — use that. A line with no stored
+   part file at all is flagged so the customer uploads it (Replace file) instead of failing at submit. */
+async function resolveReorderFiles(qid){
+  try{
+    const d=await fetch("/.netlify/functions/check-files?order="+encodeURIComponent(qid)+"&idx=1").then(r=>r.json());
+    const byI={};
+    (d.entries||[]).forEach(e=>{ if(/\.(stl|stp|step)$/i.test(e.name)) (byI[e.i]=byI[e.i]||[]).push(e.name); });
+    parts.forEach(p=>{
+      if(!Number.isInteger(p.src)) return;
+      const have=byI[p.src]||[];
+      if(p.fileName && have.some(n=>n.toLowerCase()===String(p.fileName).toLowerCase())) return;
+      if(have.length){ p.fileName=have[0]; return; }
+      p.needsFile=true;
+    });
+    render();
+  }catch(e){}
+}
 /* Clone the original quote for this reorder and point the order at the clone. Runs on every order
    attempt (cheap), so changes made after a failed attempt are never lost. Returns false to stop. */
 async function prepareReorder(){
   if(!REORDER||!REORDER_FROM) return true;
+  const noFile=parts.filter(p=>p.needsFile&&!p.replaced);
+  if(noFile.length){
+    alert("We don't have a file on record for "+(noFile.length===1?"this part":"these parts")+":\n\n• "+noFile.map(p=>p.name).join("\n• ")
+      +"\n\nUse “Replace file” on "+(noFile.length===1?"it":"each one")+" to upload the file, then place your order. (Or remove the line if you don't need it this time.)");
+    return false;
+  }
   dpxProgress("Preparing your reorder…"); await _paint();
   parts.forEach(p=>{ delete p._inQuote; });
   let d={};
@@ -1771,7 +1802,7 @@ async function uploadOrderFiles(orderNo){
   for(let i=0;i<parts.length;i++){const p=parts[i];
     if(p.fileBuf&&!p._inQuote){ if(p.fileBuf.byteLength>MAX_UPLOAD){missed.push((p.fileName||p.name)+" — file over "+MAX_UPLOAD_MB+" MB");}
       else if(!await putFile(orderNo,i,p.fileName||(p.name+".stl"),p.fileBuf)) missed.push(p.fileName||(p.name+".stl")); }
-    if(p.drawingBuf){ if(p.drawingBuf.byteLength>MAX_UPLOAD){missed.push((p.drawingName||p.name)+" — drawing over "+MAX_UPLOAD_MB+" MB");}
+    if(p.drawingBuf&&!p._drawInQuote){ if(p.drawingBuf.byteLength>MAX_UPLOAD){missed.push((p.drawingName||p.name)+" — drawing over "+MAX_UPLOAD_MB+" MB");}
       else if(!await putFile(orderNo,"draw"+i,"drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf")),p.drawingBuf)) missed.push("drawing "+(i+1)); }
   }
   return missed;
@@ -1854,18 +1885,37 @@ async function ensureQuoteSaved(){
   // Reps: ALWAYS re-save (edit-in-place on the same id) so the server-side authoritative copy matches
   // what's on screen right now. Without this, ticking Tax exempt / Waive cert fee AFTER a quote was
   // already saved would be ignored at checkout and the customer would still be charged.
-  if(LOADED_QUOTE_ID && !INTERNAL) return LOADED_QUOTE_ID;
-  if(!INTERNAL || !quotable()) return LOADED_QUOTE_ID||"";
+  // EVERY order now gets a saved quote holding its files — customer orders too, not just reps'. Without
+  // one an order can never be reordered from the customer portal (5 of Wildfactory's first 14 orders),
+  // and a quote saved without its files makes Reorder fail at submit. Order: save the quote FIRST (fast,
+  // no files), then upload the files into it; anything that doesn't make it falls back to the normal
+  // direct-to-order upload, so a slow or failed save can never leave an order without its files.
+  if(REORDER) return LOADED_QUOTE_ID||"";                    // reorder already placed against its clone quote
+  if(LOADED_QUOTE_ID && !INTERNAL) return LOADED_QUOTE_ID;   // customer ordering from a saved quote: it holds the files
+  if(!quotable()) return LOADED_QUOTE_ID||"";
+  const qid0=LOADED_QUOTE_ID||("Q-"+Math.random().toString(36).slice(2,8).toUpperCase());
   try{
     const r=await fetch("/.netlify/functions/save-quote",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({token:INTERNAL_TOKEN,id:LOADED_QUOTE_ID||undefined,
+      body:JSON.stringify({token:INTERNAL?INTERNAL_TOKEN:undefined,id:qid0,auto:true,
         parts:parts.map(p=>({name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color,dye:p.dye,vs:p.vs,vsPrice:(+p.vsPrice>0)?+p.vsPrice:null,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:+p.insertQty||1,tapped:!!p.tapped,tapQty:+p.tapQty||1,inspect:!!p.inspect,inspQty:+p.inspQty||1,notes:String(p.notes||"").slice(0,600),drawingName:p.drawingName||"",file:p.fileName||"",thumb:"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual})),
         region:(document.getElementById("sRegion")||{}).value||"us",zip:v("sZip"),shipSpeed:shipSpeed(),
         matCert:document.getElementById("matCert").checked,addlDisc:ADDL_DISC,engHours:ENG_HOURS,promo:PROMO_CODE,taxExempt:TAX_EXEMPT,certWaive:CERT_WAIVED,note:orderNotesText(),dueDate:REP_DUE||"",leadDays:REP_LEAD||0,total:orderTotals().total,origin:location.origin,source:INTERNAL?"internal":"web",name:v("cName"),company:v("cCo"),email:v("cEmail"),phone:v("cPhone")})});
     const d=await r.json().catch(()=>({}));
-    if(d.ok){LOADED_QUOTE_ID=d.id;return d.id;}
+    if(d.ok){
+      // Put this order's files into the quote so it can be reordered later. promote-quote then copies
+      // them onto the order, so uploadOrderFiles skips them (no double upload of big files).
+      const qid=d.id, todo=[];
+      parts.forEach((p,i)=>{ if(p.fileBuf&&!p._inQuote&&p.fileBuf.byteLength<=MAX_UPLOAD) todo.push({p,i,kind:"part"});
+                             if(p.drawingBuf&&!p._drawInQuote&&p.drawingBuf.byteLength<=MAX_UPLOAD) todo.push({p,i,kind:"draw"}); });
+      for(let n=0;n<todo.length;n++){ const {p,i,kind}=todo[n];
+        dpxProgress("Uploading file "+(n+1)+" of "+todo.length+" — "+(kind==="part"?(p.fileName||p.name):(p.drawingName||"drawing"))+"…"); await _paint();
+        if(kind==="part"){ if(await putFile(qid,i,p.fileName||(p.name+".stl"),p.fileBuf)) p._inQuote=true; }
+        else if(await putFile(qid,"draw"+i,"drawing-"+(i+1)+"-"+(p.drawingName||(p.name+".pdf")),p.drawingBuf)) p._drawInQuote=true;
+      }
+      LOADED_QUOTE_ID=qid; return qid;
+    }
   }catch(e){}
-  return "";
+  return LOADED_QUOTE_ID||"";
 }
 /* ---- Order progress overlay ----
    Placing an order runs for 10-20s (quote save, order number, file uploads, five PDFs, then the
@@ -2196,6 +2246,7 @@ async function loadQuote(id){
     if(REORDER) REORDER_FROM=q.id;
     (q.parts||[]).forEach((p,qi)=>{parts.push({id:++pid,src:qi,name:p.name,x:p.x,y:p.y,z:p.z,vol:p.vol,qty:p.qty,color:p.color||"natural",dye:!!p.dye,vs:!!p.vs,vsPrice:(+p.vsPrice>0)?+p.vsPrice:null,tumble:!!p.tumble,inserts:!!p.inserts,insertQty:Math.max(1,+p.insertQty||1),tapped:!!p.tapped,tapQty:Math.max(1,+p.tapQty||1),inspect:!!p.inspect,inspQty:Math.max(1,+p.inspQty||1),notes:p.notes||"",drawingName:p.drawingName||"",fileName:p.file||"",override:(p.override!=null&&+p.override>0)?+p.override:null,manual:!!p.manual,geo:null,area:0,thumb:p.thumb||null,fileBuf:null});});
     toggleShip();render();
+    if(REORDER) await resolveReorderFiles(q.id);
     const b=document.getElementById("payBanner");
     if(b){b.style.display="block";b.style.background="#eef4ff";b.style.border="1px solid #b9cdf0";b.style.color="#1b2a4a";
       b.innerHTML=REORDER
@@ -2225,6 +2276,51 @@ if(INTERNAL){
   const tex=document.getElementById("taxExempt");if(tex)tex.addEventListener("change",()=>{TAX_EXEMPT=tex.checked;render();});
   const cwv=document.getElementById("certWaive");if(cwv)cwv.addEventListener("change",()=>{CERT_WAIVED=cwv.checked;render();});
   const fov=document.getElementById("fileOverride");if(fov)fov.addEventListener("change",()=>{FILES_OVERRIDE=fov.checked;});
+  /* ---- Find customer: search past customers and autofill their details ----
+     Results come from customer-lookup (past orders + quotes), which only answers to the staff link
+     (?internal=<staff code>) — it returns customer contact data, so it can't be open to the public page. */
+  (function(){
+    const inp=document.getElementById("custFind"), box=document.getElementById("custResults"), done=document.getElementById("custFilled");
+    if(!inp||!box) return;
+    let timer=null, last="", results=[];
+    const hide=()=>{box.style.display="none";};
+    const fmt=s=>{if(!s)return"";const d=new Date(s+"T12:00:00");return isNaN(d)?s:d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});};
+    inp.addEventListener("input",()=>{ clearTimeout(timer); const q=inp.value.trim(); if(q.length<2){hide();return;} timer=setTimeout(()=>search(q),250); });
+    inp.addEventListener("keydown",e=>{ if(e.key==="Escape") hide(); });
+    document.addEventListener("click",e=>{ if(!box.contains(e.target)&&e.target!==inp) hide(); });
+    async function search(q){
+      last=q; box.style.display="block"; box.innerHTML='<div style="padding:10px 12px;font-size:13px;color:#5a6678">Searching…</div>';
+      let d={}; try{ const r=await fetch("/.netlify/functions/customer-lookup?k="+encodeURIComponent(INTERNAL_TOKEN)+"&q="+encodeURIComponent(q)); d=await r.json().catch(()=>({})); if(r.status===403) d={error:"staff"}; }catch(e){ d={error:"net"}; }
+      if(q!==last) return;   // a newer search is already running
+      if(d.error==="staff"){ box.innerHTML='<div style="padding:10px 12px;font-size:13px;color:#a32d2d">Customer search needs the staff link — ask Chris for it.</div>'; return; }
+      if(d.error){ box.innerHTML='<div style="padding:10px 12px;font-size:13px;color:#a32d2d">Search isn\'t available right now.</div>'; return; }
+      results=d.results||[];
+      if(!results.length){ box.innerHTML='<div style="padding:10px 12px;font-size:13px;color:#5a6678">No past customers match “'+esc(q)+'”.</div>'; return; }
+      box.innerHTML=results.map((p,i)=>'<div data-cust="'+i+'" style="padding:9px 12px;cursor:pointer;border-top:'+(i?'1px solid #eef1f6':'0')+'">'
+        +'<div style="font-size:13.5px;font-weight:700;color:#1b2a4a">'+esc(p.name||p.email)+(p.company?' <span style="font-weight:500;color:#5a6678">· '+esc(p.company)+'</span>':'')+'</div>'
+        +'<div style="font-size:12px;color:#5a6678">'+esc(p.email)+(p.orders?(' · '+p.orders+' order'+(p.orders===1?'':'s')+(p.lastOrder&&p.lastOrder.date?(', last '+fmt(p.lastOrder.date)+(p.lastOrder.po?(' (PO '+esc(p.lastOrder.po)+')'):"")):"")):' · quoted, no orders yet')
+        +(p.taxExempt?' · <b style="color:#1e7d52">tax exempt</b>':'')+'</div></div>').join("");
+      box.querySelectorAll("[data-cust]").forEach(el=>{
+        el.onmouseenter=()=>el.style.background="#f4f8ff"; el.onmouseleave=()=>el.style.background="";
+        el.onclick=()=>{ fill(results[+el.dataset.cust]); hide(); };
+      });
+    }
+    function fill(p){
+      const set=(id,val)=>{const el=document.getElementById(id); if(el&&val!=null&&val!=="") el.value=val;};
+      set("cName",p.name); set("cCo",p.company); set("cEmail",p.email); set("cPhone",p.phone);
+      if(p.ship){ set("sAddr",p.ship.addr); set("sCity",p.ship.city); set("sState",p.ship.state); set("sZip",p.ship.zip); set("sRegion",p.ship.region); }
+      if(p.delivery&&p.delivery.speed){ set("sSpeed",p.delivery.speed);
+        if(p.delivery.speed==="account"){ const c=document.getElementById("sCarrier");
+          if(c&&p.delivery.carrier){ const opt=[...c.options].find(o=>o.value.toLowerCase()===p.delivery.carrier.toLowerCase()); c.value=opt?opt.value:"Other"; }
+          set("sAcct",p.delivery.account); } }
+      if(p.taxExempt!=null){ TAX_EXEMPT=!!p.taxExempt; const te=document.getElementById("taxExempt"); if(te) te.checked=TAX_EXEMPT; }
+      toggleShip(); render();
+      inp.value="";
+      done.style.display="block";
+      done.innerHTML="✓ Filled from <b>"+esc(p.name||p.email)+"</b>"+(p.lastOrder&&p.lastOrder.orderNo?(" — their last order was "+esc(p.lastOrder.orderNo)+"."):".")
+        +(p.ship?" Check the address before ordering.":" No address on file — enter it below.")+(p.taxExempt?" <b>Tax exempt</b> applied.":"");
+    }
+  })();
   const dh=document.getElementById("detailsHeading");if(dh)dh.textContent="2 · Customer details";
   {const n=document.getElementById("cName");if(n)n.placeholder="Customer name";const e=document.getElementById("cEmail");if(e)e.placeholder="customer@company.com";}
   const sb=document.getElementById("saveQuoteBtn");if(sb){sb.style.display="";sb.onclick=saveQuote;}
