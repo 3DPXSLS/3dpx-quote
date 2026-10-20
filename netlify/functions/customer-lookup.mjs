@@ -53,7 +53,9 @@ function parseShipTo(s) {
   const zip = bits.length && /\d/.test(bits[bits.length - 1]) ? bits.pop() : "";
   const state = bits.length > 2 ? bits.pop() : "";
   const city = bits.length > 1 ? bits.pop() : "";
-  return { addr: bits.join(", "), city, state, zip, region };
+  const addr = bits.join(", ");
+  if (!addr && !zip) return null;          // nothing usable — don't blank out the rep's fields
+  return { addr, city, state, zip, region };
 }
 
 export default async (req) => {
@@ -80,7 +82,9 @@ export default async (req) => {
         const key = r[LOG.email].trim().toLowerCase();
         const p = people.get(key) || { email: r[LOG.email].trim(), orders: 0 };
         p.name = take(p.name, r[LOG.contact]); p.company = take(p.company, r[LOG.company]); p.phone = take(p.phone, r[LOG.phone]);
-        const ship = parseShipTo(r[LOG.shipTo]); if (ship) p.ship = ship;
+        // Newest COMPLETE address wins: a later order that only recorded a ZIP mustn't overwrite a full one.
+        const ship = parseShipTo(r[LOG.shipTo]);
+        if (ship && (ship.addr || !p.ship || !p.ship.addr)) p.ship = ship;
         const del = parseDelivery(r[LOG.delivery]); if (del.speed) p.delivery = del;
         const m = String(r[LOG.order] || "").match(/WEB-(?:\d{8}-)?\d{3,6}/);
         p.lastOrder = { orderNo: m ? m[0] : "", date: String(r[LOG.logged] || "").slice(0, 10), po: r[LOG.po] || "" };
