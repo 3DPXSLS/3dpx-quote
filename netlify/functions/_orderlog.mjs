@@ -27,7 +27,41 @@ const C = {
   invoiceDue: 5758808207167364,
   invStatus: 6660279534653316,
   estShip:  6207804560150404,   // shipping estimate the tool included in the order (0 for pickup/account)
+  receipt:  756396827905924,    // "Stripe Receipt #" — the number on the customer's Stripe email receipt
 };
+export const LOG_COLS = C;
+
+// Stripe only assigns a receipt number once its receipt email has gone out (seconds after payment),
+// so look it up with a couple of short retries. Returns "" if it isn't there yet.
+export async function stripeReceiptNo(paymentIntentId, tries = 3) {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key || !paymentIntentId) return "";
+  for (let k = 0; k < tries; k++) {
+    try {
+      const r = await fetch("https://api.stripe.com/v1/payment_intents/" + encodeURIComponent(paymentIntentId) + "?expand[]=latest_charge",
+        { headers: { Authorization: "Bearer " + key } });
+      const d = await r.json();
+      const n = d && d.latest_charge && d.latest_charge.receipt_number;
+      if (n) return String(n);
+    } catch (e) { /* retry */ }
+    if (k < tries - 1) await new Promise(res => setTimeout(res, 2500));
+  }
+  return "";
+}
+
+// Write the Stripe receipt # onto an existing Web Orders Log row (best-effort).
+export async function setLogReceipt(logRow, receiptNo) {
+  const token = process.env.SMARTSHEET_TOKEN;
+  if (!token || !logRow || !logRow.rowId || !receiptNo) return false;
+  try {
+    const r = await fetch("https://api.smartsheet.com/2.0/sheets/" + logRow.sheetId + "/rows", {
+      method: "PUT",
+      headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify([{ id: logRow.rowId, cells: [{ columnId: C.receipt, value: String(receiptNo), strict: false }] }]),
+    });
+    return r.ok;
+  } catch (e) { return false; }
+}
 
 export async function logOrder(o) {
   const token = process.env.SMARTSHEET_TOKEN;

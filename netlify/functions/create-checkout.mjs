@@ -212,7 +212,13 @@ export default async (req) => {
   f.append("automatic_tax[enabled]", taxExempt ? "false" : "true");  // rep-marked tax-exempt customers: no sales tax
   f.append("billing_address_collection", "required");  // gives Stripe the address it needs for tax
   f.append("line_items[0][price_data][currency]", "usd");
-  f.append("line_items[0][price_data][product_data][name]", "3DPX SLS order - Nylon 12 (PA12)");
+  // The order number goes in the product name so it shows on the Stripe checkout page AND on the
+  // customer's Stripe email receipt — the customer then quotes the same WEB-#### we see internally
+  // (Stripe's own receipt # can't be changed; it's logged to the Web Orders Log by the webhook).
+  f.append("line_items[0][price_data][product_data][name]", "3DPX order " + orderNo + " - SLS Nylon 12 (PA12)");
+  f.append("payment_intent_data[description]", "3DPX order " + orderNo);
+  f.append("payment_intent_data[metadata][order_no]", orderNo);
+  f.append("custom_text[submit][message]", "Your 3DPX order number is " + orderNo + ". Please use it when contacting us about this order.");
   f.append("line_items[0][price_data][product_data][description]", detail);
   f.append("line_items[0][price_data][product_data][tax_code]", "txcd_99999999");  // general tangible goods
   f.append("line_items[0][price_data][tax_behavior]", "exclusive");  // tax added on top of the amount

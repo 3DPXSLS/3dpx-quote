@@ -1292,7 +1292,11 @@ function validEmail(){const e=v("cEmail");if(!e||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.t
    print dialog's "Background graphics" setting, so the PDF a rep emails always looks polished. */
 document.getElementById("dlBtn").onclick=async ()=>{
   if(!validEmail())return;
-  const qn=quoteNum();
+  // A saved quote's PDF must carry its real, searchable number. This used to always print a
+  // date/time stamp (e.g. WEB-20261021-1343), so a PDF downloaded from a saved quote and sent back
+  // with a PO couldn't be found anywhere (Moonshot, Oct 2026). The stamp is only a fallback now,
+  // for a quote that was never saved.
+  const qn=LOADED_QUOTE_ID||quoteNum();
   const doc=buildQuotePDF(qn,{po:(v("cPO")||"").trim()||null});
   if(doc){ doc.save("3DPX-Quote-"+qn+".pdf"); return; }
   // Fallback (jsPDF unavailable): the older browser-print quote.

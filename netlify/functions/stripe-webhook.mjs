@@ -8,7 +8,7 @@
 
 import crypto from "node:crypto";
 import { sendOrderEmail, sendCustomerOrderEmail } from "./_notify.mjs";
-import { logOrder } from "./_orderlog.mjs";
+import { logOrder, stripeReceiptNo, setLogReceipt } from "./_orderlog.mjs";
 import { markQuoteOrdered } from "./_quotelog.mjs";
 import { attachOrderFiles } from "./_attach.mjs";
 import { shipCells } from "./_shipmap.mjs";
@@ -131,12 +131,18 @@ export default async (req) => {
     estShip: (m.est_ship != null && m.est_ship !== "") ? +m.est_ship : "",
   });
 
-  // Attach uploaded file(s) to the SLS Jobs row AND the Web Orders Log row (best-effort).
+  // Attach uploaded file(s) to the SLS Jobs row AND the Web Orders Log row (best-effort), and — in
+  // parallel — record the customer's Stripe receipt # on the log row (it can lag payment by seconds).
+  const receiptJob = (logRow && s.payment_intent)
+    ? stripeReceiptNo(typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent.id)
+        .then(n => n && setLogReceipt(logRow, n)).catch(() => {})
+    : Promise.resolve();
   if (rowId && m.order_no) {
     const targets = [{ sheetId, rowId }];
     if (logRow && logRow.rowId) targets.push(logRow);
     await attachOrderFiles(token, m.order_no, targets);
   }
+  await receiptJob;
 
   if (m.quote_id) await markQuoteOrdered(m.quote_id);  // flip the source quote to "Ordered"
 
