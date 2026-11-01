@@ -1290,15 +1290,44 @@ function validEmail(){const e=v("cEmail");if(!e||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.t
 /* Customer-facing "Download PDF": generate the branded jsPDF quote directly (real vector fills +
    embedded thumbnails). This renders identically on every machine and doesn't depend on the browser
    print dialog's "Background graphics" setting, so the PDF a rep emails always looks polished. */
+/* Every quote PDF — customer "Download PDF", the rep "Quote" button, Save & send — is numbered with a
+   real saved quote id and named the same way: quote-Q-XXXXXX.pdf. A PDF downloaded before saving used to
+   print a date stamp (WEB-20261021-1343) or WEB-PREVIEW that existed nowhere, so a customer sending one
+   back with a PO couldn't be matched (Moonshot, Oct 2026). Now downloading quietly saves the quote first
+   (no email to the customer; logged in SLS Quotes) and stores the PDF with it. The date stamp is only a
+   last-resort fallback if the save fails. */
+let PDF_SAVED={id:null,sig:null};   // the quote this browser saved for a download, and what it contained
+function quoteSig(){ try{ return JSON.stringify({t:orderTotals().total,s:shipSpeed(),e:v("cEmail"),
+  p:parts.map(p=>[p.name,p.qty,p.color,p.dye,p.vs,p.tumble,p.inserts,p.insertQty,p.tapped,p.tapQty,p.inspect,p.inspQty])}); }catch(e){ return String(Math.random()); } }
+async function quotePdfId(){
+  const sig=quoteSig();
+  // A customer who changed something after their own earlier download gets a NEW number (a customer
+  // save can't overwrite a stored quote). Never applies to a quote a rep sent them — that keeps its
+  // number and pricing. Reps always re-save in place, so their number never changes.
+  if(!INTERNAL && LOADED_QUOTE_ID && LOADED_QUOTE_ID===PDF_SAVED.id && sig!==PDF_SAVED.sig){
+    LOADED_QUOTE_ID=null; parts.forEach(p=>{ p._inQuote=false; p._drawInQuote=false; });
+  }
+  const before=LOADED_QUOTE_ID;
+  let id="";
+  try{ id=await ensureQuoteSaved(); }catch(e){}
+  dpxProgressDone();
+  if(id && (INTERNAL || id!==before)) PDF_SAVED={id,sig};
+  return { id: id||quoteNum(), saved: !!id && (INTERNAL || id!==before) };
+}
+async function downloadQuotePdf(){
+  dpxProgress("Preparing your quote…"); await _paint();
+  const {id:qn,saved}=await quotePdfId();
+  const doc=buildQuotePDF(qn,{po:(v("cPO")||"").trim()||null});
+  if(!doc) return null;
+  doc.save("quote-"+qn+".pdf");
+  // keep a copy with the quote we just saved (never overwrite the PDF of a quote a rep sent)
+  if(saved && /^Q-/.test(qn)) putFile(qn,"quote","quote-"+qn+".pdf",doc.output("arraybuffer")).catch(()=>{});
+  return doc;
+}
 document.getElementById("dlBtn").onclick=async ()=>{
   if(!validEmail())return;
-  // A saved quote's PDF must carry its real, searchable number. This used to always print a
-  // date/time stamp (e.g. WEB-20261021-1343), so a PDF downloaded from a saved quote and sent back
-  // with a PO couldn't be found anywhere (Moonshot, Oct 2026). The stamp is only a fallback now,
-  // for a quote that was never saved.
+  if(await downloadQuotePdf()) return;
   const qn=LOADED_QUOTE_ID||quoteNum();
-  const doc=buildQuotePDF(qn,{po:(v("cPO")||"").trim()||null});
-  if(doc){ doc.save("3DPX-Quote-"+qn+".pdf"); return; }
   // Fallback (jsPDF unavailable): the older browser-print quote.
   const pa=document.getElementById("printArea");
   pa.innerHTML=buildQuoteDoc(qn);
@@ -2109,9 +2138,8 @@ if(PAYMENTS_ENABLED){
       if(doc)doc.save("packing-slip-"+genOrderNo()+".pdf"); else alert("Generator still loading — try again in a moment."); };}
   const qb=document.getElementById("quoteBtn");
   if(qb&&isLocal){qb.style.display="";
-    qb.onclick=()=>{ if(!quotable()){alert("Add a part or enter engineering hours first.");return;}
-      const doc=buildQuotePDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});
-      if(doc)doc.save("quote-"+genOrderNo()+".pdf"); else alert("Generator still loading — try again in a moment."); };}
+    qb.onclick=async ()=>{ if(!quotable()){alert("Add a part or enter engineering hours first.");return;}
+      if(!await downloadQuotePdf()) alert("Generator still loading — try again in a moment."); };}
 })();
 (function(){const q=new URLSearchParams(location.search);const b=document.getElementById("payBanner");
   if(q.get("paid")){b.style.display="block";b.style.background="#e8f7ef";b.style.border="1px solid #a9e0c3";b.style.color="#1e7d52";
@@ -2331,7 +2359,7 @@ if(INTERNAL){
   const apb=document.getElementById("approvedBtn");if(apb){apb.style.display="";apb.onclick=()=>submitPO(true);}
   const tb=document.getElementById("travBtn");if(tb){tb.style.display="";tb.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildTravelerPDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});if(d)d.save("traveler-"+genOrderNo()+".pdf");};}
   const pk=document.getElementById("packBtn");if(pk){pk.style.display="";pk.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildPackingSlipPDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});if(d)d.save("packing-slip-"+genOrderNo()+".pdf");};}
-  const qbn=document.getElementById("quoteBtn");if(qbn){qbn.style.display="";qbn.onclick=()=>{if(!quotable()){alert("Add a part or enter engineering hours first.");return;}const d=buildQuotePDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});if(d)d.save("quote-"+genOrderNo()+".pdf");};}
+  const qbn=document.getElementById("quoteBtn");if(qbn){qbn.style.display="";qbn.onclick=async ()=>{if(!quotable()){alert("Add a part or enter engineering hours first.");return;}await downloadQuotePdf();};}
   const ibn=document.getElementById("invBtn");if(ibn){ibn.style.display="";ibn.onclick=()=>{if(!parts.length){alert("Add a part first.");return;}const d=buildInventoryPDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});if(d)d.save("inventory-"+genOrderNo()+".pdf"); else alert("Generator still loading — try again in a moment.");};}
   const abn=document.getElementById("acctBtn");if(abn){abn.style.display="";abn.onclick=()=>{if(!quotable()){alert("Add a part or enter engineering hours first.");return;}const d=buildAccountingPDF(genOrderNo(),{po:(v("cPO")||"").trim()||null});if(d)d.save("accounting-"+genOrderNo()+".pdf"); else alert("Generator still loading — try again in a moment.");};}
   // Rep actions panel: labeled buttons that trigger the (now hidden) summary buttons' handlers.
