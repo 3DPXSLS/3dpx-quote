@@ -1,15 +1,13 @@
-// 3DPX — shared helper: email the team when an order is created.
-// No-op unless RESEND_API_KEY is set, so it never breaks an order if email isn't configured yet.
+// 3DPX — the emails the quote tool sends (team alerts, customer confirmations, status updates, quotes).
+// Sending itself lives in _mail.mjs (Microsoft 365, or Resend as a fallback). No-op if neither is set
+// up, so email can never break an order.
 // Env:
-//   RESEND_API_KEY   (required to send) — from https://resend.com
-//   ORDER_ALERT_TO   (optional) — comma-separated recipients; default sales@3dpx.com
-//   ORDER_ALERT_FROM (optional) — must be on a Resend-verified domain; default "3DPX Orders <orders@3dpx.com>"
+//   ORDER_ALERT_TO   (optional) — comma-separated team recipients; default sales@3dpx.com
+import { sendMail, mailVia, salesInbox } from "./_mail.mjs";
 
 export async function sendOrderEmail(o) {
-  const key = process.env.RESEND_API_KEY;
-  if (!key) return false;
+  if (!mailVia()) return false;
   const to = (process.env.ORDER_ALERT_TO || "sales@3dpx.com").split(",").map(s => s.trim()).filter(Boolean);
-  const from = process.env.ORDER_ALERT_FROM || "3DPX Orders <orders@3dpx.com>";
   const kind = o.kind || "Order";
   const esc = s => String(s == null ? "" : s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
   const subject = "New " + kind + " — " + (o.orderNo || "") + (o.company ? (" · " + o.company) : "");
@@ -32,15 +30,7 @@ export async function sendOrderEmail(o) {
     </table>
     <p style="font-size:12px;color:#6b7891;margin-top:14px">Full order details + files are in the SLS Jobs sheet.</p>
   </div>`;
-  try {
-    const r = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to, subject, html }),
-    });
-    if (!r.ok) { console.log("order email failed:", r.status, await r.text()); return false; }
-    return true;
-  } catch (e) { console.log("order email error:", e.message); return false; }
+  return (await sendMail({ to, subject, html, tag: "team alert" })).ok;
 }
 
 // ---- Customer order confirmation ---------------------------------------------------------------
@@ -67,17 +57,13 @@ export function orderItems(parts) {
 }
 
 // Email the CUSTOMER a confirmation when their order is placed. kind: "card" | "po" | "approved".
-// Best-effort and never blocks the order. No-op without RESEND_API_KEY, without a valid recipient,
+// Best-effort and never blocks the order. No-op without email set up, without a valid recipient,
 // or when the recipient is a 3dpx.com address (reps sometimes enter sales@ on internal orders, and
 // there's no point confirming an order to ourselves). Replies go to sales, not to the no-reply sender.
-// NOTE: only delivers once 3dpx.com is a verified sending domain in Resend and ORDER_ALERT_FROM
-// uses it — Resend's test sender (onboarding@resend.dev) refuses to email anyone but the account owner.
 export async function sendCustomerOrderEmail(o) {
-  const key = process.env.RESEND_API_KEY;
   const to = String((o && o.to) || "").trim();
-  if (!key || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to) || /@3dpx\.com$/i.test(to)) return false;
-  const from = process.env.ORDER_ALERT_FROM || "3DPX Orders <orders@3dpx.com>";
-  const replyTo = (process.env.ORDER_ALERT_TO || "sales@3dpx.com").split(",")[0].trim();
+  if (!mailVia() || !customerAddr(to)) return false;
+  const replyTo = salesInbox();
   const money = n => "$" + Number(n || 0).toFixed(2);
   const kind = o.kind || "card";
   const ref = (o.orderNo || "") + (o.po ? (" (PO " + o.po + ")") : "");
@@ -99,7 +85,7 @@ export async function sendCustomerOrderEmail(o) {
   const html = `<div style="font-family:Arial,Helvetica,sans-serif;color:#1b2330;max-width:600px">
     <div style="font-size:13px;font-weight:bold;letter-spacing:.5px;color:#1b2a4a;margin-bottom:6px">3DPX ADDITIVE MANUFACTURING</div>
     <h2 style="color:#1b2a4a;border-bottom:3px solid #f26a21;padding-bottom:8px;margin:0 0 14px">${_esc(headline)}</h2>
-    <p style="font-size:14px;line-height:1.5;margin:0 0 16px">${o.name ? ("Hi " + _esc(String(o.name).split(" ")[0]) + ", ") : ""}${_esc(lead)}</p>
+    <p style="font-size:14px;line-height:1.5;margin:0 0 16px">${o.name ? ("Hi " + _esc(String(o.name).split(" ")[0]) + ",<br>") : ""}${_esc(lead)}</p>
     <table style="border-collapse:collapse;width:100%;margin-bottom:18px">
       ${rows.map(r => `<tr><td style="${td};background:#f4f6fa;font-weight:bold;width:140px">${_esc(r[0])}</td><td style="${td}">${_esc(r[1])}</td></tr>`).join("")}
     </table>
@@ -112,23 +98,13 @@ export async function sendCustomerOrderEmail(o) {
     <p style="font-size:13px;line-height:1.5;margin:20px 0 0">Questions or changes? Just reply to this email, or call <b>(312) 896-3399</b> and mention <b>${_esc(o.orderNo || "")}</b>.</p>
     <p style="font-size:12px;color:#6b7891;margin:14px 0 0">The ship date is an estimate and is confirmed when your parts enter production.</p>
   </div>`;
-  try {
-    const r = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to: [to], reply_to: replyTo, subject, html }),
-    });
-    if (!r.ok) { console.log("customer order email failed:", r.status, await r.text()); return false; }
-    return true;
-  } catch (e) { console.log("customer order email error:", e.message); return false; }
+  return (await sendMail({ to, replyTo, subject, html, tag: "order confirmation " + (o.orderNo || "") })).ok;
 }
 
-// Email a saved quote to the customer (and copy sales). No-op unless RESEND_API_KEY is set and a
+// Email a saved quote to the customer (and copy sales). No-op unless email is set up and a
 // customer email is provided. Best-effort — never blocks the save.
 export async function sendQuoteEmail(q) {
-  const key = process.env.RESEND_API_KEY;
-  if (!key || !q || !q.to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(q.to))) return false;
-  const from = process.env.ORDER_ALERT_FROM || "3DPX Orders <orders@3dpx.com>";
+  if (!mailVia() || !q || !q.to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(q.to))) return false;
   const salesTo = (process.env.ORDER_ALERT_TO || "sales@3dpx.com").split(",").map(s => s.trim()).filter(Boolean);
   const esc = s => String(s == null ? "" : s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
   const subject = "Your 3DPX quote " + (q.quoteId || "");
@@ -140,13 +116,75 @@ export async function sendQuoteEmail(q) {
     <p><a href="${esc(q.link)}" style="background:#f26a21;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">View my quote</a></p>
     <p style="font-size:12px;color:#6b7891;margin-top:14px">Need a change? Reply to this email or call (312) 896-3399 and reference ${esc(q.quoteId)} — we can update it for you.</p>
   </div>`;
-  try {
-    const r = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to: [q.to], cc: salesTo, subject, html }),
-    });
-    if (!r.ok) { console.log("quote email failed:", r.status, await r.text()); return false; }
-    return true;
-  } catch (e) { console.log("quote email error:", e.message); return false; }
+  return (await sendMail({ to: q.to, cc: salesTo, replyTo: salesInbox(), subject, html, tag: "quote " + (q.quoteId || "") })).ok;
+}
+
+// A real customer address (not blank, not one of ours — reps sometimes enter sales@ on internal orders).
+export function customerAddr(to) {
+  const t = String(to || "").trim();
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(t) && !/@3dpx\.com$/i.test(t);
+}
+
+// Carrier tracking link (FedEx / UPS / USPS by number shape); "" if unknown.
+export function trackingLink(num, via) {
+  const n = String(num || "").replace(/\s+/g, "");
+  if (!n) return "";
+  if (/^1Z[0-9A-Z]{16}$/i.test(n)) return "https://www.ups.com/track?tracknum=" + encodeURIComponent(n);
+  if (/^(94|93|92|95)\d{18,20}$/.test(n)) return "https://tools.usps.com/go/TrackConfirmAction?tLabels=" + encodeURIComponent(n);
+  if (/^\d{12}$|^\d{15}$|^\d{20,22}$/.test(n) || /fedex/i.test(via || "")) return "https://www.fedex.com/fedextrack/?trknbr=" + encodeURIComponent(n);
+  return "";
+}
+
+// ---- Customer status updates ---------------------------------------------------------------------
+// kind: "production" | "pickup" | "shipped".  o: { to, name, orderNo, po, due, shipDate, shipVia,
+// shipSpeed, tracking, pieces }.  Returns { ok, via, error } (see _mail.mjs).
+export function statusEmail(kind, o) {
+  const ref = (o.orderNo || "") + (o.po ? (" (PO " + o.po + ")") : "");
+  const hi = o.name ? ("Hi " + _esc(String(o.name).split(" ")[0]) + ",<br>") : "";
+  const td = "padding:7px 10px;border:1px solid #e2e8f2;font-size:14px";
+  let subject, headline, lead, rows = [["Order #", ref]], extra = "";
+  if (kind === "production") {
+    subject = "Your 3DPX order " + ref + " is in production";
+    headline = "Your parts are in production";
+    lead = "Good news — your order is now being printed.";
+    rows.push(["Est. ship date", o.due ? _fmtDate(o.due) : ""]);
+    extra = "We'll email you again as soon as it ships.";
+  } else if (kind === "pickup") {
+    subject = "Your 3DPX order " + ref + " is ready for pickup";
+    headline = "Your order is ready for pickup";
+    lead = "Your parts are finished and ready to collect.";
+    rows.push(["Pickup at", "3DPX · 410 N. Milwaukee Ave, Chicago, IL 60654"]);
+    extra = "Reply to this email or call <b>(312) 896-3399</b> to let us know when you're coming.";
+  } else {
+    subject = "Your 3DPX order " + ref + " has shipped";
+    headline = "Your order has shipped";
+    lead = "Your parts are on their way.";
+    const carrier = [o.shipVia && !/customer provided|3dpx internal|additional/i.test(o.shipVia) ? o.shipVia : "", o.shipSpeed].filter(Boolean).join(" · ");
+    rows.push(["Ship date", o.shipDate ? _fmtDate(o.shipDate) : ""], ["Carrier", carrier]);
+    const link = trackingLink(o.tracking, o.shipVia);
+    if (o.tracking) rows.push(["Tracking #", "__TRACK__"]);
+    extra = o.tracking ? "" : "Need the tracking number? Just reply to this email.";
+    rows = rows.map(r => r[1] === "__TRACK__"
+      ? [r[0], { html: link ? `<a href="${_esc(link)}" style="color:#f26a21;font-weight:bold">${_esc(o.tracking)}</a>` : _esc(o.tracking) }] : r);
+  }
+  if (o.pieces) rows.push(["Quantity", o.pieces + " piece" + (+o.pieces === 1 ? "" : "s")]);
+  rows = rows.filter(r => r[1] != null && r[1] !== "");
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;color:#1b2330;max-width:600px">
+    <div style="font-size:13px;font-weight:bold;letter-spacing:.5px;color:#1b2a4a;margin-bottom:6px">3DPX ADDITIVE MANUFACTURING</div>
+    <h2 style="color:#1b2a4a;border-bottom:3px solid #f26a21;padding-bottom:8px;margin:0 0 14px">${_esc(headline)}</h2>
+    <p style="font-size:14px;line-height:1.5;margin:0 0 16px">${hi}${_esc(lead)}</p>
+    <table style="border-collapse:collapse;width:100%;margin-bottom:16px">
+      ${rows.map(r => `<tr><td style="${td};background:#f4f6fa;font-weight:bold;width:140px">${_esc(r[0])}</td><td style="${td}">${typeof r[1] === "object" ? r[1].html : _esc(r[1])}</td></tr>`).join("")}
+    </table>
+    ${extra ? `<p style="font-size:14px;line-height:1.5;margin:0 0 12px">${extra}</p>` : ""}
+    <p style="font-size:13px;line-height:1.5;margin:16px 0 0">Questions? Reply to this email or call <b>(312) 896-3399</b> and mention <b>${_esc(o.orderNo || "")}</b>.</p>
+  </div>`;
+  return { subject, html };
+}
+
+export async function sendStatusEmail(kind, o) {
+  if (!mailVia()) return { ok: false, error: "email not configured" };
+  if (!customerAddr(o.to)) return { ok: false, error: "no customer email" };
+  const { subject, html } = statusEmail(kind, o);
+  return sendMail({ to: o.to, replyTo: salesInbox(), subject, html, tag: kind + " " + (o.orderNo || "") });
 }
