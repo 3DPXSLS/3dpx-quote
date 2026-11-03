@@ -2108,6 +2108,9 @@ async function submitPO(approved){
       b.innerHTML=msg;
       ORDER_PLACED=true;                         // order is in — never allow a second submission this session
       orderConfirmed(msg);                       // inline confirmation under the buttons + gray out order controls
+      // Finish attaching anything submit-po ran out of time for (big STLs + 5 PDFs) in a fresh function
+      // call, so the documents reach SLS Jobs within seconds instead of waiting for the 10-minute sweep.
+      fetch("/.netlify/functions/attach-sweep?order="+encodeURIComponent(orderNo)).catch(()=>{});
       btn.textContent=approved?"Order created ✓":"PO submitted ✓"; return;
     }
     alert(data.error||"Couldn't submit the order. Please download the quote and email it to sales@3dpx.com.");

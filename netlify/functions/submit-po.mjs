@@ -251,25 +251,32 @@ export default async (req) => {
 
   // Notify the team + log to the capture-all orders sheet (best-effort).
   const payLabel = approved ? "Approved in writing — invoice on terms (no card)" : ("PO " + po + " — invoice on terms (unpaid)");
-  await sendOrderEmail({
-    kind: approved ? "Approved order" : "PO order", orderNo: orderIdent,
-    company: body.company || body.name, contact: contactVal, price,
-    pieces: totalParts, delivery: shipMethod, due, payment: payLabel, notes,
-  });
-  // Confirm to the customer (best-effort; skipped for internal 3dpx.com placeholder emails).
-  await sendCustomerOrderEmail({
-    kind: approved ? "approved" : "po", to: body.email, name: body.name, orderNo: webNo, po,
-    amount: price, pieces: totalParts, delivery: shipMethod, shipTo: body.shipAddress, due,
-    items: orderItems(parts),
-  });
-  const logRow = await logOrder({
-    orderNo: webNo, type: approved ? "Approved" : "PO", source: body.source === "internal" ? "Internal" : "Web",
-    company: body.company || body.name, contact: body.name, email: body.email, phone: body.phone,
-    amount: price, pieces: totalParts, volume: totalVol, colors: colorVals.join(", "),
-    delivery: shipMethod, payment: payLabel, po, quoteId: body.quoteId, shipTo: body.shipAddress, notes,
-    invoiceDue: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),  // Net 30 (PO + Approved)
-    estShip: shipEstimate(parts, body.region, speed, body.zip),
-  });
+  // Emails + the orders-log row run side by side (none depends on another) to save time: this function
+  // has a hard time limit, and file attaching below is the slow part. Anything not attached in time is
+  // finished by reattach-order (called by the widget right after this returns) or the 10-minute sweep.
+  const [, , logRow] = await Promise.all([
+    sendOrderEmail({
+      kind: approved ? "Approved order" : "PO order", orderNo: orderIdent,
+      company: body.company || body.name, contact: contactVal, price,
+      pieces: totalParts, delivery: shipMethod, due, payment: payLabel, notes,
+    }).catch(() => false),
+    // Confirm to the customer (best-effort; skipped for internal 3dpx.com placeholder emails).
+    sendCustomerOrderEmail({
+      kind: approved ? "approved" : "po", to: body.email, name: body.name, orderNo: webNo, po,
+      amount: price, pieces: totalParts, delivery: shipMethod, shipTo: body.shipAddress, due,
+      items: orderItems(parts),
+    }).catch(() => false),
+    logOrder({
+      orderNo: webNo, type: approved ? "Approved" : "PO", source: body.source === "internal" ? "Internal" : "Web",
+      company: body.company || body.name, contact: body.name, email: body.email, phone: body.phone,
+      amount: price, pieces: totalParts, volume: totalVol, colors: colorVals.join(", "),
+      delivery: shipMethod, payment: payLabel, po, quoteId: body.quoteId, shipTo: body.shipAddress, notes,
+      invoiceDue: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),  // Net 30 (PO + Approved)
+      estShip: shipEstimate(parts, body.region, speed, body.zip),
+    }),
+  ]);
+
+  if (body.quoteId) await markQuoteOrdered(body.quoteId);  // flip the source quote to "Ordered" (before the slow part)
 
   // Attach uploaded STL(s) + PO doc to the SLS Jobs row AND the Web Orders Log row (best-effort).
   if (rowId && body.orderNo) {
@@ -277,8 +284,6 @@ export default async (req) => {
     if (logRow && logRow.rowId) targets.push(logRow);
     await attachOrderFiles(token, body.orderNo, targets);
   }
-
-  if (body.quoteId) await markQuoteOrdered(body.quoteId);  // flip the source quote to "Ordered"
 
   return json({ ok: true, order: po });
 };
